@@ -1,0 +1,10 @@
+{
+    "wifi_ssid": "YOUR_SSID",
+    "wifi_password": "YOUR_PASSWORD",
+    "num_players": 8,
+    "points_correct": 10,
+    "points_incorrect": -5,
+    "ap_ssid": "HayaoshiButton",
+    "ap_password": "hayaoshi1234",
+    "discord_webhook": ""
+}

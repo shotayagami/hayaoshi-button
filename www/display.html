@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>早押しボタン</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: system-ui, sans-serif; background: #0a0a1a; color: #eee;
+            height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+        }
+
+        /* Header */
+        .header {
+            text-align: center; padding: 12px; background: #16213e;
+            font-size: 1.2em; font-weight: bold; letter-spacing: 0.1em;
+        }
+        .header .state-label { font-size: 0.7em; margin-left: 16px; padding: 4px 12px; border-radius: 4px; }
+
+        /* Main display area */
+        .main-display {
+            flex: 1; display: flex; align-items: center; justify-content: center;
+            position: relative; min-height: 0;
+        }
+
+        /* Idle / Armed state */
+        .display-idle {
+            font-size: 4em; font-weight: bold; color: #444;
+            text-align: center; animation: pulse 2s ease-in-out infinite;
+        }
+        .display-armed {
+            font-size: 3.5em; font-weight: bold; color: #2d6a4f;
+            text-align: center; animation: pulse 1.5s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        /* First presser display */
+        .first-presser {
+            text-align: center; animation: popIn 0.3s ease-out;
+        }
+        .first-presser .player-num {
+            width: 120px; height: 120px; border-radius: 50%; display: inline-flex;
+            align-items: center; justify-content: center;
+            font-size: 3em; font-weight: bold; color: #fff;
+            margin-bottom: 16px; box-shadow: 0 0 40px rgba(255,255,255,0.3);
+        }
+        .first-presser .player-name {
+            font-size: 4em; font-weight: bold; margin-bottom: 8px;
+        }
+        .first-presser .press-label {
+            font-size: 1.5em; color: #888;
+        }
+        @keyframes popIn {
+            0% { transform: scale(0.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        /* Countdown */
+        .countdown-display {
+            text-align: center;
+        }
+        .countdown-number {
+            font-size: 12em; font-weight: bold; color: #f4a261;
+            text-shadow: 0 0 40px rgba(244, 162, 97, 0.5);
+            animation: countPulse 1s ease-in-out infinite;
+        }
+        .countdown-number.urgent { color: #e76f51; text-shadow: 0 0 40px rgba(231, 111, 81, 0.7); }
+        .countdown-label { font-size: 1.5em; color: #888; margin-top: 8px; }
+        @keyframes countPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .countdown-bar {
+            position: absolute; bottom: 0; left: 0; height: 6px;
+            background: #f4a261; transition: width 1s linear;
+        }
+
+        /* Result overlay */
+        .result-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 6em; font-weight: bold; z-index: 10;
+            animation: resultFlash 0.5s ease-out;
+        }
+        .result-correct { background: rgba(45, 106, 79, 0.85); color: #fff; }
+        .result-incorrect { background: rgba(231, 111, 81, 0.85); color: #fff; }
+        @keyframes resultFlash {
+            0% { opacity: 0; transform: scale(1.5); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-20px); }
+            40% { transform: translateX(20px); }
+            60% { transform: translateX(-10px); }
+            80% { transform: translateX(10px); }
+        }
+        .shake { animation: shake 0.5s ease-out; }
+
+        /* Press order bar */
+        .press-order-bar {
+            display: flex; gap: 8px; padding: 12px 16px; background: #111;
+            justify-content: center; align-items: center; min-height: 56px; flex-wrap: wrap;
+        }
+        .press-order-item {
+            padding: 6px 16px; border-radius: 8px; font-weight: bold; font-size: 1.1em;
+        }
+        .press-order-first { font-size: 1.3em; }
+
+        /* Scoreboard */
+        .scoreboard {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+            background: #16213e; border-top: 2px solid #333;
+        }
+        .score-cell {
+            padding: 12px 8px; text-align: center; border-right: 1px solid #333;
+            transition: background 0.3s;
+        }
+        .score-cell:last-child { border-right: none; }
+        .score-cell .s-name { font-size: 1.1em; font-weight: bold; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .score-cell .s-score { font-size: 1.8em; font-weight: bold; }
+        .score-cell.score-highlight { animation: scoreFlash 0.6s ease-out; }
+        @keyframes scoreFlash {
+            0% { background: rgba(255,255,255,0.3); }
+            100% { background: transparent; }
+        }
+
+        .score-cell.score-penalty {
+            background: rgba(0,0,0,0.4);
+            opacity: 0.5;
+        }
+        .penalty-label {
+            font-size: 0.7em; color: #e76f51; font-weight: bold;
+            background: rgba(231,111,81,0.15); border-radius: 4px;
+            padding: 2px 6px; margin-top: 4px; display: inline-block;
+        }
+
+        .hidden { display: none !important; }
+
+        /* Audio unlock overlay */
+        .audio-unlock {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 100;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+        }
+        .audio-unlock-inner {
+            text-align: center;
+        }
+        .audio-unlock-icon { font-size: 5em; margin-bottom: 16px; }
+        .audio-unlock-text { font-size: 1.5em; color: #888; }
+    </style>
+</head>
+<body>
+    <div class="audio-unlock" id="audioUnlock" onclick="unlockAudio()">
+        <div class="audio-unlock-inner">
+            <div class="audio-unlock-icon">&#128266;</div>
+            <div class="audio-unlock-text">画面をタップして音声を有効にしてください</div>
+        </div>
+    </div>
+
+    <div class="header">
+        早押しボタン
+        <span id="stateLabel" class="state-label" style="background:#666">IDLE</span>
+    </div>
+
+    <div class="main-display" id="mainDisplay">
+        <div class="display-idle" id="displayIdle">STANDBY</div>
+    </div>
+
+    <div class="press-order-bar" id="pressOrderBar"></div>
+
+    <div class="scoreboard" id="scoreboard"></div>
+
+    <script src="display.js"></script>
+</body>
+</html>

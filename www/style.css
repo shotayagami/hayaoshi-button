@@ -1,0 +1,18 @@
+/* Common styles - shared between admin and display */
+:root {
+    --color-p1: #e63946;
+    --color-p2: #457b9d;
+    --color-p3: #2a9d8f;
+    --color-p4: #e9c46a;
+    --color-p5: #f4a261;
+    --color-p6: #264653;
+    --color-p7: #6a4c93;
+    --color-p8: #1982c4;
+
+    --color-correct: #2d6a4f;
+    --color-incorrect: #e76f51;
+    --color-bg: #0a0a1a;
+    --color-surface: #16213e;
+    --color-text: #eeeeee;
+    --color-text-dim: #888888;
+}
