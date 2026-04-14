@@ -6,5 +6,13 @@
     "points_incorrect": -5,
     "ap_ssid": "HayaoshiButton",
     "ap_password": "hayaoshi1234",
-    "discord_webhook": ""
+    "discord_webhook": "",
+    "colors": ["#e63946", "#457b9d", "#2a9d8f", "#e9c46a", "#f4a261", "#264653", "#6a4c93", "#1982c4"],
+    "revival": false,
+    "jingle_auto_arm": false,
+    "countdown_auto_stop": false,
+    "penalty_rounds": 0,
+    "batch_mode": false,
+    "batch_use_order": true,
+    "batch_points": [10, 8, 6, 4, 3, 2, 1, 1]
 }
