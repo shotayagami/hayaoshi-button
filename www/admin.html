@@ -102,13 +102,17 @@
             状態: <span id="gameState" class="status-indicator status-idle">IDLE</span>
             <span>問題: <span id="roundNum">0</span>問目</span>
         </div>
-        <div style="display:flex;align-items:center;gap:8px">
-            <label style="font-size:0.8em;color:#888">音声再生:</label>
-            <select id="audioMode" onchange="onAudioModeChange()" style="background:#1a1a2e;color:#eee;border:1px solid #444;border-radius:4px;padding:2px 4px;font-size:0.8em">
-                <option value="display">表示画面</option>
-                <option value="admin" selected>管理画面</option>
-                <option value="both">両方</option>
-            </select>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:0.8em;color:#888">音声:</span>
+            <label style="font-size:0.75em;cursor:pointer;display:flex;align-items:center;gap:2px">
+                <input type="checkbox" id="audioAdmin" onchange="onAudioModeChange()" checked> 管理画面
+            </label>
+            <label style="font-size:0.75em;cursor:pointer;display:flex;align-items:center;gap:2px">
+                <input type="checkbox" id="audioDisplay" onchange="onAudioModeChange()"> 表示画面
+            </label>
+            <label style="font-size:0.75em;cursor:pointer;display:flex;align-items:center;gap:2px">
+                <input type="checkbox" id="audioDfplayer" onchange="onAudioModeChange()" checked> DFPlayer
+            </label>
             <span id="audioStatus" style="font-size:0.75em;cursor:pointer" onclick="unlockAdminAudio()">🔇</span>
             <span id="wsStatus" class="ws-status ws-disconnected">切断中</span>
         </div>

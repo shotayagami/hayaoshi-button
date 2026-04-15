@@ -448,18 +448,26 @@ function getAdminAudioUrl(name) {
     return adminAudioCache[name] || `sounds/${name}.mp3`;
 }
 
-function getAudioMode() {
-    return document.getElementById("audioMode").value;
+function shouldPlayLocal() {
+    return document.getElementById("audioAdmin").checked;
 }
 
-function shouldPlayLocal() {
-    const mode = getAudioMode();
-    return mode === "admin" || mode === "both";
+function shouldPlayDisplay() {
+    return document.getElementById("audioDisplay").checked;
+}
+
+function shouldPlayDfplayer() {
+    return document.getElementById("audioDfplayer").checked;
 }
 
 function onAudioModeChange() {
-    const mode = getAudioMode();
-    ws && ws.send(JSON.stringify({ type: "audio_mode", mode: mode }));
+    const displayEnabled = shouldPlayDisplay();
+    const dfplayerEnabled = shouldPlayDfplayer();
+    ws && ws.send(JSON.stringify({
+        type: "audio_mode",
+        display: displayEnabled,
+        dfplayer: dfplayerEnabled,
+    }));
 }
 
 function unlockAdminAudio() {

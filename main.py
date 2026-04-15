@@ -13,6 +13,7 @@ Request.max_content_length = 200 * 1024  # 200KB
 from buttons import ButtonManager
 from game import GameEngine
 from ws_manager import WSManager
+from dfplayer import DFPlayer
 import protocol
 
 
@@ -119,8 +120,10 @@ game = GameEngine(
     points_correct=config.get("points_correct", 10),
     points_incorrect=config.get("points_incorrect", -5),
 )
+dfp = DFPlayer()
 game.set_broadcast(ws_mgr.broadcast)
 game.set_buttons(buttons)
+game.set_dfplayer(dfp)
 buttons.set_player_callback(game.on_player_press)
 buttons.set_host_callback(game.on_host_press)
 
@@ -239,15 +242,20 @@ async def websocket_handler(req, ws):
             elif msg_type == "settings":
                 await game.update_settings(msg)
             elif msg_type == "jingle":
+                if dfp.is_ready():
+                    dfp.play_sound(dfp.SOUND_JINGLE)
                 await ws_mgr.broadcast({"type": "jingle"})
                 if game.jingle_auto_arm:
                     await game.arm()
             elif msg_type == "countdown":
+                if dfp.is_ready():
+                    dfp.play_sound(dfp.SOUND_COUNTDOWN)
                 await game.start_countdown()
             elif msg_type == "set_colors":
                 await game.set_colors(msg["colors"])
             elif msg_type == "audio_mode":
-                await ws_mgr.broadcast({"type": "audio_mode", "mode": msg["mode"]})
+                dfp.enabled = msg.get("dfplayer", True)
+                await ws_mgr.broadcast({"type": "audio_mode", "display": msg.get("display", False)})
     except Exception as e:
         print(f"WS: error: {e}")
     finally:
@@ -296,6 +304,7 @@ async def static_files(req, path):
     return serve_file(f"www/{path}", content_type)
 
 async def run():
+    await dfp.init()
     asyncio.create_task(buttons.poll_loop())
     print("Button polling started.")
     print("System ready.")

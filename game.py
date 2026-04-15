@@ -43,12 +43,17 @@ class GameEngine:
         self._buttons = None
         # Callback for saving config
         self._save_config = None
+        # DFPlayer
+        self._dfp = None
 
     def set_broadcast(self, callback):
         self._broadcast = callback
 
     def set_buttons(self, buttons):
         self._buttons = buttons
+
+    def set_dfplayer(self, dfp):
+        self._dfp = dfp
 
     def set_save_config(self, callback):
         """callback(key, value) - saves to config.json"""
@@ -124,6 +129,10 @@ class GameEngine:
             self.state = protocol.STATE_JUDGING
             self.stop_countdown()
 
+        # Play player sound via DFPlayer
+        if self._dfp and self._dfp.is_ready():
+            self._dfp.play_player(player_id)
+
         # Update lamp state
         self._update_lamps()
 
@@ -144,10 +153,14 @@ class GameEngine:
         elif button_name == "stop":
             await self.stop()
         elif button_name == "jingle":
+            if self._dfp and self._dfp.is_ready():
+                self._dfp.play_sound(self._dfp.SOUND_JINGLE)
             await self._broadcast_msg({"type": "jingle"})
             if self.jingle_auto_arm:
                 await self.arm()
         elif button_name == "countdown":
+            if self._dfp and self._dfp.is_ready():
+                self._dfp.play_sound(self._dfp.SOUND_COUNTDOWN)
             await self.start_countdown()
 
     async def judge(self, result):
@@ -165,6 +178,9 @@ class GameEngine:
             player["score"] += delta
             self.state = protocol.STATE_SHOWING_RESULT
 
+            if self._dfp and self._dfp.is_ready():
+                self._dfp.play_sound(self._dfp.SOUND_CORRECT)
+
             # Stop blink, turn off waiting players, flash for celebration
             if self._buttons:
                 self._buttons.stop_blink()
@@ -180,6 +196,9 @@ class GameEngine:
         else:
             delta = self.points_incorrect
             player["score"] += delta
+
+            if self._dfp and self._dfp.is_ready():
+                self._dfp.play_sound(self._dfp.SOUND_INCORRECT)
 
             # Apply penalty (+1 because ARM decrements immediately)
             if self.penalty_rounds > 0:
@@ -232,6 +251,8 @@ class GameEngine:
         if self._countdown_task:
             self._countdown_task.cancel()
             self._countdown_task = None
+            if self._dfp and self._dfp.is_ready():
+                self._dfp.stop()
         self._countdown_value = 0
 
     async def _countdown_loop(self):
@@ -244,6 +265,8 @@ class GameEngine:
                     "value": self._countdown_value,
                 })
                 if self._countdown_value <= 0:
+                    if self._dfp and self._dfp.is_ready():
+                        self._dfp.play_sound(self._dfp.SOUND_COUNTDOWN_END)
                     if self.countdown_auto_stop:
                         await self.stop()
         except asyncio.CancelledError:
@@ -360,6 +383,12 @@ class GameEngine:
                     player["penalty"] = self.penalty_rounds + 1
 
         self.state = protocol.STATE_SHOWING_RESULT
+
+        if self._dfp and self._dfp.is_ready():
+            if sound == "correct":
+                self._dfp.play_sound(self._dfp.SOUND_BATCH_CORRECT)
+            else:
+                self._dfp.play_sound(self._dfp.SOUND_INCORRECT)
 
         if self._buttons:
             self._buttons.stop_blink()

@@ -13,9 +13,11 @@ class ButtonManager:
     def __init__(self, num_players=8):
         self.num_players = num_players
 
-        # Player buttons: GP0-GP7 (active LOW with pull-up)
+        # Player buttons (active LOW with pull-up)
+        # GP0-GP3, GP26, GP27, GP6, GP7 (GP4/GP5 reserved for UART1/DFPlayer)
+        PLAYER_GPIOS = [0, 1, 2, 3, 26, 27, 6, 7]
         self.player_pins = [
-            Pin(i, Pin.IN, Pin.PULL_UP) for i in range(num_players)
+            Pin(PLAYER_GPIOS[i], Pin.IN, Pin.PULL_UP) for i in range(num_players)
         ]
 
         # Player lamps: GP8-GP15 (PWM output)

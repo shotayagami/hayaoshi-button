@@ -185,7 +185,7 @@ function handleMessage(msg) {
             playSound("jingle");
             break;
         case "audio_mode":
-            displayAudioEnabled = (msg.mode === "display" || msg.mode === "both");
+            displayAudioEnabled = !!msg.display;
             break;
         case "reset":
             state.game_state = msg.game_state;
