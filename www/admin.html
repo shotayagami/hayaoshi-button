@@ -104,7 +104,10 @@
         .batch-order-settings { margin-left: 22px; margin-top: 2px; }
         .batch-label { font-size: 0.85em; }
         .batch-label-dim { font-size: 0.85em; color: #888; }
-        .batch-points-input { width: 180px; padding: 2px 6px; border-radius: 4px; border: 1px solid #444; background: #1a1a2e; color: #eee; font-size: 0.85em; }
+        .batch-points-container { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+        .batch-rank { display: inline-flex; align-items: center; gap: 3px; }
+        .batch-rank-label { font-size: 0.8em; color: #888; }
+        .batch-rank-input { width: 44px; padding: 2px 4px; border-radius: 4px; border: 1px solid #444; background: #1a1a2e; color: #eee; font-size: 0.85em; text-align: center; }
 
         .history-scroll { overflow-x: auto; }
         .history-table { width: 100%; border-collapse: collapse; font-size: 0.8em; }
@@ -262,10 +265,8 @@
                         着順ポイントを使用
                     </label>
                     <div id="batchOrderSettings" class="batch-order-settings hidden">
-                        <label class="option-label batch-label-dim">
-                            着順ポイント:
-                            <input type="text" id="batchPoints" value="10,8,6,4,3,2,1,1" onchange="sendSettings()" class="batch-points-input">
-                        </label>
+                        <div class="batch-label-dim">着順ポイント:</div>
+                        <div class="batch-points-container" id="batchPointsContainer"></div>
                     </div>
                 </div>
             </div>

@@ -262,14 +262,36 @@ function renderSettings() {
     document.getElementById("countdownAutoStop").checked = !!state.countdown_auto_stop;
     document.getElementById("penaltyRounds").value = state.penalty_rounds || 0;
     document.getElementById("batchMode").checked = !!state.batch_mode;
-    if (state.batch_points) {
-        document.getElementById("batchPoints").value = state.batch_points.join(",");
-    }
+    renderBatchPoints();
     document.getElementById("batchUseOrder").checked = !!state.batch_use_order;
     // Show/hide batch settings
     document.getElementById("batchSettings").classList.toggle("hidden", !state.batch_mode);
     document.getElementById("batchOrderSettings").classList.toggle("hidden", !state.batch_use_order);
     document.getElementById("batchColHeader").classList.toggle("hidden", !state.batch_mode);
+}
+
+function renderBatchPoints() {
+    const container = document.getElementById("batchPointsContainer");
+    const n = state.players.length;
+    const points = state.batch_points || [];
+    // Rebuild if player count changed
+    if (container.children.length !== n) {
+        container.innerHTML = "";
+        for (let i = 0; i < n; i++) {
+            const wrap = document.createElement("span");
+            wrap.className = "batch-rank";
+            wrap.innerHTML = `<span class="batch-rank-label">${i + 1}着</span><input type="number" class="batch-rank-input" data-rank="${i}" onchange="sendSettings()">`;
+            container.appendChild(wrap);
+        }
+    }
+    // Update values (skip if user is editing)
+    for (let i = 0; i < n; i++) {
+        const input = container.querySelector(`[data-rank="${i}"]`);
+        if (input && document.activeElement !== input) {
+            const fallback = points.length > 0 ? points[points.length - 1] : 0;
+            input.value = points[i] !== undefined ? points[i] : fallback;
+        }
+    }
 }
 
 function updateJudgeButtons() {
@@ -404,8 +426,8 @@ function sendSettings() {
     const pr = parseInt(document.getElementById("penaltyRounds").value) || 0;
     const bm = document.getElementById("batchMode").checked;
     const buo = document.getElementById("batchUseOrder").checked;
-    const bpStr = document.getElementById("batchPoints").value;
-    const bp = bpStr.split(",").map(v => parseInt(v.trim()) || 0);
+    const bpInputs = document.querySelectorAll("#batchPointsContainer .batch-rank-input");
+    const bp = Array.from(bpInputs).map(inp => parseInt(inp.value) || 0);
     ws && ws.send(JSON.stringify({
         type: "settings", num_players: np, points_correct: pc, points_incorrect: pi,
         revival: rv, max_accepts: ma, jingle_auto_arm: jaa, countdown_auto_stop: cas, penalty_rounds: pr,

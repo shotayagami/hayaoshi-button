@@ -1,4 +1,10 @@
+import asyncio
 import protocol
+
+
+# Max time to wait for a single ws.send() before assuming the client is dead.
+# Prevents button polling from hanging on half-dead TCP connections.
+SEND_TIMEOUT_S = 2.0
 
 
 class WSManager:
@@ -18,16 +24,18 @@ class WSManager:
     async def broadcast(self, msg_dict):
         data = protocol.encode(msg_dict)
         dead = []
-        for ws in self.clients:
+        # Snapshot to avoid mutation during iteration
+        for ws in list(self.clients):
             try:
-                await ws.send(data)
-            except Exception:
+                await asyncio.wait_for(ws.send(data), SEND_TIMEOUT_S)
+            except Exception as e:
+                print(f"WS: broadcast drop ({type(e).__name__})")
                 dead.append(ws)
         for ws in dead:
             self.remove(ws)
 
     async def send_to(self, ws, msg_dict):
         try:
-            await ws.send(protocol.encode(msg_dict))
+            await asyncio.wait_for(ws.send(protocol.encode(msg_dict)), SEND_TIMEOUT_S)
         except Exception:
             self.remove(ws)

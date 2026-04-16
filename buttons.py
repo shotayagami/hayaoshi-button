@@ -172,6 +172,8 @@ class ButtonManager:
     # --- Polling loop ---
 
     async def poll_loop(self):
+        # Handlers are dispatched as fire-and-forget tasks so polling never
+        # blocks on network I/O (e.g., a half-dead WebSocket client).
         while True:
             now = time.ticks_us()
 
@@ -184,7 +186,7 @@ class ButtonManager:
                     if time.ticks_diff(now, self._player_last_us[i]) > self.DEBOUNCE_US:
                         self._player_last_us[i] = now
                         if self._on_player_press:
-                            await self._on_player_press(i, now)
+                            asyncio.create_task(self._on_player_press(i, now))
 
             # Poll host buttons (edge detection: trigger once on press)
             for name, pin in self.host_pins.items():
@@ -195,6 +197,6 @@ class ButtonManager:
                     if time.ticks_diff(now, self._host_last_us[name]) > self.DEBOUNCE_US:
                         self._host_last_us[name] = now
                         if self._on_host_press:
-                            await self._on_host_press(name)
+                            asyncio.create_task(self._on_host_press(name))
 
             await asyncio.sleep(0.001)
