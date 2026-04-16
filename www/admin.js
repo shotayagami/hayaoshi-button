@@ -228,8 +228,11 @@ function renderPlayers() {
                 </div>
             </td>
             <td>${statusText}</td>
-            ${state.batch_mode ? `<td style="text-align:center">
-                <input type="checkbox" class="batch-check" data-pid="${p.id}" style="width:20px;height:20px;cursor:pointer">
+            ${state.batch_mode ? `<td>
+                <div class="batch-judge-cell">
+                    <label class="batch-judge-label"><input type="checkbox" class="batch-check-correct batch-judge-check" data-pid="${p.id}">正</label>
+                    <label class="batch-judge-label"><input type="checkbox" class="batch-check-noanswer batch-judge-check" data-pid="${p.id}">無</label>
+                </div>
             </td>` : ''}
         `;
         tbody.appendChild(tr);
@@ -264,6 +267,14 @@ function renderSettings() {
     document.getElementById("batchMode").checked = !!state.batch_mode;
     renderBatchPoints();
     document.getElementById("batchUseOrder").checked = !!state.batch_use_order;
+    if (state.batch_incorrect !== undefined) {
+        const bi = document.getElementById("batchIncorrect");
+        if (document.activeElement !== bi) bi.value = state.batch_incorrect;
+    }
+    if (state.batch_noanswer !== undefined) {
+        const bn = document.getElementById("batchNoanswer");
+        if (document.activeElement !== bn) bn.value = state.batch_noanswer;
+    }
     // Show/hide batch settings
     document.getElementById("batchSettings").classList.toggle("hidden", !state.batch_mode);
     document.getElementById("batchOrderSettings").classList.toggle("hidden", !state.batch_use_order);
@@ -386,10 +397,15 @@ function doResetAll() {
 
 function sendJudge(result) {
     if (state.batch_mode && (state.game_state === "armed" || state.game_state === "judging")) {
-        const checks = document.querySelectorAll(".batch-check:checked");
-        const correctIds = Array.from(checks).map(cb => parseInt(cb.dataset.pid));
+        const correctChecks = document.querySelectorAll(".batch-check-correct:checked");
+        const noanswerChecks = document.querySelectorAll(".batch-check-noanswer:checked");
+        const correctIds = Array.from(correctChecks).map(cb => parseInt(cb.dataset.pid));
+        const noanswerIds = Array.from(noanswerChecks).map(cb => parseInt(cb.dataset.pid));
         ws && ws.send(JSON.stringify({
-            type: "batch_judge", correct_ids: correctIds, sound: result
+            type: "batch_judge",
+            correct_ids: correctIds,
+            noanswer_ids: noanswerIds,
+            sound: result
         }));
         return;
     }
@@ -428,10 +444,15 @@ function sendSettings() {
     const buo = document.getElementById("batchUseOrder").checked;
     const bpInputs = document.querySelectorAll("#batchPointsContainer .batch-rank-input");
     const bp = Array.from(bpInputs).map(inp => parseInt(inp.value) || 0);
+    const biVal = parseInt(document.getElementById("batchIncorrect").value);
+    const bnVal = parseInt(document.getElementById("batchNoanswer").value);
+    const bi = isNaN(biVal) ? -5 : biVal;
+    const bn = isNaN(bnVal) ? 0 : bnVal;
     ws && ws.send(JSON.stringify({
         type: "settings", num_players: np, points_correct: pc, points_incorrect: pi,
         revival: rv, max_accepts: ma, jingle_auto_arm: jaa, countdown_auto_stop: cas, penalty_rounds: pr,
-        batch_mode: bm, batch_use_order: buo, batch_points: bp
+        batch_mode: bm, batch_use_order: buo, batch_points: bp,
+        batch_incorrect: bi, batch_noanswer: bn
     }));
 }
 
@@ -642,7 +663,8 @@ function recordBatchHistory(results) {
         const pressEntry = state.press_order.find(pr => pr.player_id === p.id);
         record.players.push({
             id: p.id, penalty: p.penalty || 0, pressed: !!pressEntry,
-            results: r ? [r.result] : [], delta: r ? r.delta : 0,
+            results: r ? [{ result: r.result, order: r.order || 0 }] : [],
+            delta: r ? r.delta : 0,
         });
     });
     history.push(record);
@@ -687,9 +709,9 @@ function renderHistory() {
                     // Show sequence: 1× 3○ etc.
                     const marks = ph.results.map(r => {
                         const ord = r.order > 0 ? r.order : '';
-                        return r.result === "correct"
-                            ? `<span class="h-correct">${ord}○</span>`
-                            : `<span class="h-incorrect">${ord}×</span>`;
+                        if (r.result === "correct") return `<span class="h-correct">${ord}○</span>`;
+                        if (r.result === "noanswer") return `<span class="h-penalty">${ord}—</span>`;
+                        return `<span class="h-incorrect">${ord}×</span>`;
                     }).join('');
                     const sign = ph.delta >= 0 ? '+' : '';
                     cell = `${marks} ${sign}${ph.delta}`;

@@ -147,6 +147,10 @@ if "batch_use_order" in config:
     game.batch_use_order = config["batch_use_order"]
 if "batch_points" in config:
     game.batch_points = config["batch_points"]
+if "batch_incorrect" in config:
+    game.batch_incorrect = config["batch_incorrect"]
+if "batch_noanswer" in config:
+    game.batch_noanswer = config["batch_noanswer"]
 
 # Config save callback
 def on_save_config(key, value):
@@ -233,6 +237,7 @@ async def websocket_handler(req, ws):
                 await game.batch_judge(
                     msg.get("correct_ids", []),
                     sound=msg.get("sound", "correct"),
+                    noanswer_ids=msg.get("noanswer_ids", []),
                 )
             elif msg_type == "reset":
                 await game.reset()

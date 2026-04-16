@@ -16,6 +16,8 @@ class GameEngine:
         self.batch_mode = False
         self.batch_use_order = True
         self.batch_points = [10, 8, 6, 4, 3, 2, 1, 1]
+        self.batch_incorrect = -5  # Incorrect points used only when batch_use_order=True
+        self.batch_noanswer = 0    # Unpressed + unchecked points used only when batch_use_order=True
         self._countdown_task = None
         self._countdown_value = 0
         self.round = 0
@@ -89,6 +91,8 @@ class GameEngine:
         msg["batch_mode"] = self.batch_mode
         msg["batch_use_order"] = self.batch_use_order
         msg["batch_points"] = self.batch_points
+        msg["batch_incorrect"] = self.batch_incorrect
+        msg["batch_noanswer"] = self.batch_noanswer
         return msg
 
     async def _broadcast_msg(self, msg):
@@ -370,64 +374,89 @@ class GameEngine:
         await self._broadcast_msg(protocol.make_reset_msg(self.state))
         await self._broadcast_msg(self.get_state_msg())
 
-    async def batch_judge(self, correct_ids, sound="correct"):
+    async def batch_judge(self, correct_ids, sound="correct", noanswer_ids=None):
         if self.state not in (protocol.STATE_JUDGING, protocol.STATE_ARMED):
             return
 
+        correct_set = set(correct_ids)
+        noanswer_set = set(noanswer_ids or [])
+        use_order = self.batch_use_order
+
         results = []
         processed = set()
-        correct_rank = 0  # Rank among correct players
+        correct_rank = 0
 
-        # Process pressed players
-        for i, (pid, ts) in enumerate(self.press_order):
-            player = self.players[pid]
+        # Classification (per player):
+        #   correct_ids        → "correct"
+        #   use_order && (explicit noanswer OR unpressed)  → "noanswer"
+        #   otherwise          → "incorrect" (pressed+unchecked, or legacy mode)
+        # Scoring:
+        #   correct:   batch_points[rank]  (use_order) / points_correct (legacy)
+        #   noanswer:  batch_noanswer      (use_order) / 0              (legacy)
+        #   incorrect: batch_incorrect     (use_order) / points_incorrect (legacy)
+        # Penalty applies to "incorrect" only.
+
+        # Process pressed players (preserves press order for rank)
+        for i, (pid, _) in enumerate(self.press_order):
             processed.add(pid)
-            if pid in correct_ids:
-                if self.batch_use_order:
-                    pts = self.batch_points[correct_rank] if correct_rank < len(self.batch_points) else self.batch_points[-1]
+            player = self.players[pid]
+            order = i + 1
+
+            if pid in correct_set:
+                if use_order:
+                    idx = correct_rank if correct_rank < len(self.batch_points) else -1
+                    delta = self.batch_points[idx]
                 else:
-                    pts = self.points_correct
+                    delta = self.points_correct
                 correct_rank += 1
-                player["score"] += pts
-                results.append({
-                    "player_id": pid, "result": "correct",
-                    "delta": pts, "order": i + 1,
-                    "new_score": player["score"],
-                })
+                result = "correct"
+            elif use_order and pid in noanswer_set:
+                delta = self.batch_noanswer
+                result = "noanswer"
             else:
-                delta = self.points_incorrect
-                player["score"] += delta
-                results.append({
-                    "player_id": pid, "result": "incorrect",
-                    "delta": delta, "order": i + 1,
-                    "new_score": player["score"],
-                })
-                if self.penalty_rounds > 0:
-                    player["penalty"] = self.penalty_rounds + 1
+                delta = self.batch_incorrect if use_order else self.points_incorrect
+                result = "incorrect"
+
+            player["score"] += delta
+            results.append({
+                "player_id": pid, "result": result,
+                "delta": delta, "order": order,
+                "new_score": player["score"],
+            })
+            if result == "incorrect" and self.penalty_rounds > 0:
+                player["penalty"] = self.penalty_rounds + 1
 
         # Process unpressed players
         for pid in range(len(self.players)):
             if pid in processed:
                 continue
             player = self.players[pid]
-            if pid in correct_ids:
-                pts = self.points_correct
-                player["score"] += pts
-                results.append({
-                    "player_id": pid, "result": "correct",
-                    "delta": pts, "order": 0,
-                    "new_score": player["score"],
-                })
+
+            if pid in correct_set:
+                if use_order:
+                    idx = correct_rank if correct_rank < len(self.batch_points) else -1
+                    delta = self.batch_points[idx]
+                else:
+                    delta = self.points_correct
+                correct_rank += 1
+                result = "correct"
+            elif use_order:
+                # Unpressed + unchecked (or explicit noanswer) → noanswer
+                delta = self.batch_noanswer
+                result = "noanswer"
             else:
+                # Legacy: without use_order, unpressed+unchecked = incorrect
                 delta = self.points_incorrect
-                player["score"] += delta
-                results.append({
-                    "player_id": pid, "result": "incorrect",
-                    "delta": delta, "order": 0,
-                    "new_score": player["score"],
-                })
-                if self.penalty_rounds > 0:
-                    player["penalty"] = self.penalty_rounds + 1
+                result = "incorrect"
+
+            player["score"] += delta
+            results.append({
+                "player_id": pid, "result": result,
+                "delta": delta, "order": 0,
+                "new_score": player["score"],
+            })
+            if result == "incorrect" and self.penalty_rounds > 0:
+                player["penalty"] = self.penalty_rounds + 1
 
         self.state = protocol.STATE_SHOWING_RESULT
 
@@ -544,4 +573,12 @@ class GameEngine:
             self.batch_points = settings["batch_points"]
             if self._save_config:
                 self._save_config("batch_points", self.batch_points)
+        if "batch_incorrect" in settings:
+            self.batch_incorrect = int(settings["batch_incorrect"])
+            if self._save_config:
+                self._save_config("batch_incorrect", self.batch_incorrect)
+        if "batch_noanswer" in settings:
+            self.batch_noanswer = int(settings["batch_noanswer"])
+            if self._save_config:
+                self._save_config("batch_noanswer", self.batch_noanswer)
         await self._broadcast_msg(self.get_state_msg())

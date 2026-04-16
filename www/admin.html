@@ -108,6 +108,10 @@
         .batch-rank { display: inline-flex; align-items: center; gap: 3px; }
         .batch-rank-label { font-size: 0.8em; color: #888; }
         .batch-rank-input { width: 44px; padding: 2px 4px; border-radius: 4px; border: 1px solid #444; background: #1a1a2e; color: #eee; font-size: 0.85em; text-align: center; }
+        .batch-extra-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+        .batch-judge-cell { display: flex; gap: 6px; justify-content: center; align-items: center; }
+        .batch-judge-label { display: inline-flex; align-items: center; gap: 2px; font-size: 0.8em; color: #888; cursor: pointer; }
+        .batch-judge-check { width: 18px; height: 18px; cursor: pointer; }
 
         .history-scroll { overflow-x: auto; }
         .history-table { width: 100%; border-collapse: collapse; font-size: 0.8em; }
@@ -204,7 +208,7 @@
 
     <table class="players-table">
         <thead>
-            <tr><th>#</th><th>色</th><th>名前</th><th>スコア</th><th>状態</th><th id="batchColHeader" class="hidden">正解</th></tr>
+            <tr><th>#</th><th>色</th><th>名前</th><th>スコア</th><th>状態</th><th id="batchColHeader" class="hidden">判定</th></tr>
         </thead>
         <tbody id="playerRows"></tbody>
     </table>
@@ -267,6 +271,12 @@
                     <div id="batchOrderSettings" class="batch-order-settings hidden">
                         <div class="batch-label-dim">着順ポイント:</div>
                         <div class="batch-points-container" id="batchPointsContainer"></div>
+                        <div class="batch-extra-row">
+                            <label class="batch-label-dim" for="batchIncorrect">不正解:</label>
+                            <input type="number" id="batchIncorrect" value="-5" onchange="sendSettings()" class="batch-rank-input">
+                            <label class="batch-label-dim" for="batchNoanswer">無回答:</label>
+                            <input type="number" id="batchNoanswer" value="0" onchange="sendSettings()" class="batch-rank-input">
+                        </div>
                     </div>
                 </div>
             </div>

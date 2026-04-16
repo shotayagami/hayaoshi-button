@@ -15,5 +15,7 @@
     "penalty_rounds": 0,
     "batch_mode": false,
     "batch_use_order": true,
-    "batch_points": [10, 8, 6, 4, 3, 2, 1, 1]
+    "batch_points": [10, 8, 6, 4, 3, 2, 1, 1],
+    "batch_incorrect": -5,
+    "batch_noanswer": 0
 }

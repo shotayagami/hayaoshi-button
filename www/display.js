@@ -338,9 +338,17 @@ function showBatchResult(results) {
         const player = state.players.find(p => p.id === r.player_id);
         const name = player ? player.name : `Player ${r.player_id + 1}`;
         const color = PLAYER_COLORS[r.player_id] || "#666";
-        const isCorrect = r.result === "correct";
-        const icon = isCorrect ? "&#9675;" : "&#10005;";
-        const bgColor = isCorrect ? "rgba(45,106,79,0.3)" : "rgba(231,111,81,0.3)";
+        let icon, bgColor;
+        if (r.result === "correct") {
+            icon = "&#9675;";
+            bgColor = "rgba(45,106,79,0.3)";
+        } else if (r.result === "noanswer") {
+            icon = "&mdash;";
+            bgColor = "rgba(100,100,100,0.3)";
+        } else {
+            icon = "&#10005;";
+            bgColor = "rgba(231,111,81,0.3)";
+        }
         const sign = r.delta >= 0 ? "+" : "";
         html += `<div style="display:inline-block;margin:8px;padding:12px 20px;border-radius:8px;background:${bgColor};min-width:120px">
             <div style="font-size:1.5em;font-weight:bold;color:${color}">${escapeHtml(name)}</div>
