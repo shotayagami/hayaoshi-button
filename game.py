@@ -39,6 +39,7 @@ class GameEngine:
 
         self._answerer_idx = 0  # Index in press_order of current answerer
         self._last_wrong_id = -1  # Previous wrong answerer (for revival)
+        self._judging_lock = False  # Set while processing an incorrect judgment
 
         # Callback for broadcasting messages
         self._broadcast = None
@@ -149,18 +150,21 @@ class GameEngine:
 
     async def on_player_press(self, player_id, timestamp_us):
         if self.state not in (protocol.STATE_ARMED, protocol.STATE_JUDGING):
+            print("P%d press rejected: state=%s" % (player_id + 1, self.state))
             return
 
         if player_id in self._pressed_set:
+            print("P%d press rejected: already in pressed_set" % (player_id + 1))
             return
 
         # Penalty: player is sitting out
         if player_id < len(self.players) and self.players[player_id]["penalty"] > 0:
-            print(f"Player {player_id+1}: penalty {self.players[player_id]['penalty']}, rejected")
+            print("P%d press rejected: penalty=%d" % (player_id + 1, self.players[player_id]["penalty"]))
             return
 
         # Max accepts limit — count only presses still in the queue (judged-past don't occupy a slot)
         if self.max_accepts > 0 and self._active_press_count() >= self.max_accepts:
+            print("P%d press rejected: max_accepts full (%d)" % (player_id + 1, self._active_press_count()))
             return
 
         self._pressed_set.add(player_id)
@@ -215,6 +219,12 @@ class GameEngine:
         if self._answerer_idx >= len(self.press_order):
             return
 
+        # Prevent double-processing while an incorrect judgment is in its
+        # 3-second animation window (state stays JUDGING so the guard alone
+        # isn't enough).
+        if self._judging_lock:
+            return
+
         answerer_id = self.press_order[self._answerer_idx][0]
         player = self.players[answerer_id]
 
@@ -238,60 +248,69 @@ class GameEngine:
             )
 
         else:
-            delta = self.points_incorrect
-            player["score"] += delta
+            self._judging_lock = True
+            try:
+                delta = self.points_incorrect
+                player["score"] += delta
 
-            if self._dfp and self._dfp.is_ready():
-                self._dfp.play_sound(self._dfp.SOUND_INCORRECT)
+                if self._dfp and self._dfp.is_ready():
+                    self._dfp.play_sound(self._dfp.SOUND_INCORRECT)
 
-            # Apply penalty (+1 because ARM decrements immediately)
-            if self.penalty_rounds > 0:
-                player["penalty"] = self.penalty_rounds + 1
-                print(f"Penalty: Player {answerer_id+1} = {self.penalty_rounds} rounds")
+                # Apply penalty (+1 because ARM decrements immediately)
+                if self.penalty_rounds > 0:
+                    player["penalty"] = self.penalty_rounds + 1
+                    print(f"Penalty: Player {answerer_id+1} = {self.penalty_rounds} rounds")
 
-            # Revival: previous wrong answerer can now re-press
-            if self.revival and self._last_wrong_id >= 0:
-                self._pressed_set.discard(self._last_wrong_id)
-            self._last_wrong_id = answerer_id
+                # Revival: previous wrong answerer can now re-press
+                if self.revival and self._last_wrong_id >= 0:
+                    self._pressed_set.discard(self._last_wrong_id)
+                self._last_wrong_id = answerer_id
 
-            await self._broadcast_msg(
-                protocol.make_judgment_msg(result, answerer_id, player["score"], delta)
-            )
+                await self._broadcast_msg(
+                    protocol.make_judgment_msg(result, answerer_id, player["score"], delta)
+                )
 
-            # Wait for animation before moving to next
-            await asyncio.sleep(3)
+                # Wait for animation before moving to next
+                await asyncio.sleep(3)
 
-            # Move to next answerer
-            self._answerer_idx += 1
+                # If state changed externally during the wait (reset/stop/arm),
+                # abort — do not stomp on the new state.
+                if self.state != protocol.STATE_JUDGING:
+                    return
 
-            if self._answerer_idx < len(self.press_order):
-                # Next person in queue
-                self._update_lamps()
-                next_id = self.press_order[self._answerer_idx][0]
-                await self._broadcast_msg({
-                    "type": "next_answerer",
-                    "player_id": next_id,
-                    "answerer_idx": self._answerer_idx,
-                })
-            else:
-                if self.revival:
-                    # Slots freed: clear press_order, re-arm
-                    self.press_order = []
-                    self._answerer_idx = 0
-                    self.state = protocol.STATE_ARMED
+                # Move to next answerer
+                self._answerer_idx += 1
+
+                if self._answerer_idx < len(self.press_order):
+                    # Next person in queue
                     self._update_lamps()
+                    next_id = self.press_order[self._answerer_idx][0]
                     await self._broadcast_msg({
-                        "type": "no_answerer",
-                        "revival": True,
+                        "type": "next_answerer",
+                        "player_id": next_id,
+                        "answerer_idx": self._answerer_idx,
                     })
                 else:
-                    # No one left, round over
-                    self.state = protocol.STATE_SHOWING_RESULT
-                    if self._buttons:
-                        self._buttons.all_lamps_off()
-                    await self._broadcast_msg({
-                        "type": "no_answerer",
-                    })
+                    if self.revival:
+                        # Slots freed: clear press_order, re-arm
+                        self.press_order = []
+                        self._answerer_idx = 0
+                        self.state = protocol.STATE_ARMED
+                        self._update_lamps()
+                        await self._broadcast_msg({
+                            "type": "no_answerer",
+                            "revival": True,
+                        })
+                    else:
+                        # No one left, round over
+                        self.state = protocol.STATE_SHOWING_RESULT
+                        if self._buttons:
+                            self._buttons.all_lamps_off()
+                        await self._broadcast_msg({
+                            "type": "no_answerer",
+                        })
+            finally:
+                self._judging_lock = False
 
     async def start_countdown(self):
         self.stop_countdown()
@@ -333,6 +352,7 @@ class GameEngine:
         self._first_press_us = 0
         self._answerer_idx = 0
         self._last_wrong_id = -1
+        self._judging_lock = False
         self.state = protocol.STATE_IDLE
 
         if self._buttons:
@@ -347,6 +367,7 @@ class GameEngine:
         self._first_press_us = 0
         self._answerer_idx = 0
         self._last_wrong_id = -1
+        self._judging_lock = False
         self.state = protocol.STATE_IDLE
 
         if self._buttons:
@@ -360,6 +381,7 @@ class GameEngine:
         self._first_press_us = 0
         self._answerer_idx = 0
         self._last_wrong_id = -1
+        self._judging_lock = False
 
         self.round += 1
         self.state = protocol.STATE_ARMED

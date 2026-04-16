@@ -6,6 +6,7 @@ let playerColors = [
 let ws = null;
 let history = [];
 let pendingJudgments = [];  // Accumulate judgments within a round
+let judgeCooldownUntil = 0;  // Timestamp: disable judge buttons until this time
 let state = {
     game_state: "idle",
     players: [],
@@ -67,6 +68,10 @@ function handleMessage(msg) {
             if (msg.result === "correct") {
                 state.game_state = "showing_result";
                 finalizeHistory();
+            } else {
+                // Server holds judgment for ~3s before advancing; block UI too
+                judgeCooldownUntil = Date.now() + 3200;
+                setTimeout(updateJudgeButtons, 3300);
             }
             state.answerer_id = msg.player_id;
             const p = state.players.find(pl => pl.id === msg.player_id);
@@ -306,7 +311,8 @@ function renderBatchPoints() {
 }
 
 function updateJudgeButtons() {
-    const canJudge = state.game_state === "judging";
+    const inCooldown = Date.now() < judgeCooldownUntil;
+    const canJudge = state.game_state === "judging" && !inCooldown;
     const batchReady = state.batch_mode && state.game_state === "armed";
     document.getElementById("btnCorrect").disabled = !(canJudge || batchReady);
     document.getElementById("btnIncorrect").disabled = !(canJudge || batchReady);

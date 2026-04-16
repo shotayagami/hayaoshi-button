@@ -220,6 +220,7 @@ async def websocket_handler(req, ws):
                 break
             msg = protocol.decode(data)
             msg_type = msg.get("type")
+            print("WS recv: %s" % msg_type)
 
             if msg_type == "register":
                 ws_mgr.set_type(ws, msg.get("client_type"))
@@ -315,8 +316,9 @@ async def static_files(req, path):
 
 async def run():
     await dfp.init()
-    asyncio.create_task(buttons.poll_loop())
-    print("Button polling started.")
+    asyncio.create_task(buttons.watchdog_loop())
+    asyncio.create_task(buttons.diagnostic_loop(10))
+    print("Button IRQs + watchdog started.")
     print("System ready.")
     await app.start_server(host="0.0.0.0", port=80, debug=True)
 
