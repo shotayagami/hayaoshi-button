@@ -9,6 +9,7 @@
     "discord_webhook": "",
     "colors": ["#e63946", "#457b9d", "#2a9d8f", "#e9c46a", "#f4a261", "#264653", "#6a4c93", "#1982c4"],
     "revival": false,
+    "max_accepts": 0,
     "jingle_auto_arm": false,
     "countdown_auto_stop": false,
     "penalty_rounds": 0,

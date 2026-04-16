@@ -4,17 +4,17 @@ import os
 import socket
 import ssl
 import wifi
+import protocol
 from microdot import Microdot
 from microdot.microdot import Request
 from microdot.websocket import with_websocket
-
-Request.max_content_length = 200 * 1024  # 200KB
-# max_body_length stays at 16KB - larger files use streaming
 from buttons import ButtonManager
 from game import GameEngine
 from ws_manager import WSManager
 from dfplayer import DFPlayer
-import protocol
+
+Request.max_content_length = 200 * 1024  # 200KB
+# max_body_length stays at 16KB - larger files use streaming
 
 
 CONTENT_TYPES = {
@@ -89,6 +89,7 @@ def notify_discord(ip_addr):
             "content": f"Hayaoshi started! ({wifi_mode})\nAdmin: http://{ip_addr}/admin\nDisplay: http://{ip_addr}/"
         }).encode()
         s = socket.socket()
+        s.settimeout(5)
         ai = socket.getaddrinfo(host, 443)[0]
         s.connect(ai[-1])
         ss = ssl.wrap_socket(s)
@@ -132,6 +133,8 @@ if "colors" in config:
     game.colors = config["colors"]
 if "revival" in config:
     game.revival = config["revival"]
+if "max_accepts" in config:
+    game.max_accepts = config["max_accepts"]
 if "jingle_auto_arm" in config:
     game.jingle_auto_arm = config["jingle_auto_arm"]
 if "countdown_auto_stop" in config:
@@ -239,6 +242,8 @@ async def websocket_handler(req, ws):
                 await game.reset_scores()
             elif msg_type == "reset_round":
                 await game.reset_round()
+            elif msg_type == "set_round":
+                await game.set_round(int(msg.get("value", 0)))
             elif msg_type == "settings":
                 await game.update_settings(msg)
             elif msg_type == "jingle":

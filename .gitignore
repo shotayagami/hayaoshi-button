@@ -3,3 +3,5 @@ test_*.py
 config.json
 __pycache__/
 *.pyc
+docs/
+.vscode/

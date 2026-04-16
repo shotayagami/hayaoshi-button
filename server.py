@@ -1,7 +1,6 @@
 from microdot import Microdot
 from microdot.websocket import with_websocket
 import protocol
-import json
 
 
 CONTENT_TYPES = {

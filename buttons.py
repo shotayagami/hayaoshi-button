@@ -10,6 +10,15 @@ class ButtonManager:
     BRIGHTNESS_DIM = 6500
     BRIGHTNESS_OFF = 0
 
+    # Lamp modes
+    MODE_OFF = 0
+    MODE_DIM = 1
+    MODE_FULL = 2
+    MODE_BLINK_DIM = 3
+    MODE_BLINK_FULL = 4
+
+    BLINK_INTERVAL_MS = 300
+
     def __init__(self, num_players=8):
         self.num_players = num_players
 
@@ -45,6 +54,13 @@ class ButtonManager:
         self._host_last_us = {k: 0 for k in self.host_pins}
         self._host_prev = {k: 1 for k in self.host_pins}
 
+        # Per-player lamp mode
+        self._lamp_mode = [self.MODE_OFF] * num_players
+
+        # Blink task
+        self._blink_task = None
+        self._blink_on = True  # Current blink phase
+
         # Flash task tracking
         self._flash_task = None
 
@@ -60,43 +76,101 @@ class ButtonManager:
         """callback(button_name: str)"""
         self._on_host_press = callback
 
-    # Lamp control
+    # --- Lamp mode setters ---
+
     def lamp_full(self, player_id):
         if 0 <= player_id < self.num_players:
+            self._lamp_mode[player_id] = self.MODE_FULL
             self.lamp_pwms[player_id].duty_u16(self.BRIGHTNESS_FULL)
 
     def lamp_dim(self, player_id):
         if 0 <= player_id < self.num_players:
+            self._lamp_mode[player_id] = self.MODE_DIM
             self.lamp_pwms[player_id].duty_u16(self.BRIGHTNESS_DIM)
 
     def lamp_off(self, player_id):
         if 0 <= player_id < self.num_players:
+            self._lamp_mode[player_id] = self.MODE_OFF
             self.lamp_pwms[player_id].duty_u16(self.BRIGHTNESS_OFF)
 
+    def lamp_blink_full(self, player_id):
+        if 0 <= player_id < self.num_players:
+            self._lamp_mode[player_id] = self.MODE_BLINK_FULL
+            self.lamp_pwms[player_id].duty_u16(self.BRIGHTNESS_FULL)
+            self._ensure_blink_task()
+
+    def lamp_blink_dim(self, player_id):
+        if 0 <= player_id < self.num_players:
+            self._lamp_mode[player_id] = self.MODE_BLINK_DIM
+            self.lamp_pwms[player_id].duty_u16(self.BRIGHTNESS_DIM)
+            self._ensure_blink_task()
+
     def all_lamps_off(self):
-        for pwm in self.lamp_pwms:
-            pwm.duty_u16(self.BRIGHTNESS_OFF)
+        for i in range(self.num_players):
+            self._lamp_mode[i] = self.MODE_OFF
+            self.lamp_pwms[i].duty_u16(self.BRIGHTNESS_OFF)
+        self._stop_blink_task()
+
+    def stop_blink(self):
+        """Stop all blinking, keep non-blink modes unchanged."""
+        for i in range(self.num_players):
+            if self._lamp_mode[i] in (self.MODE_BLINK_FULL, self.MODE_BLINK_DIM):
+                self._lamp_mode[i] = self.MODE_OFF
+                self.lamp_pwms[i].duty_u16(self.BRIGHTNESS_OFF)
+        self._stop_blink_task()
 
     # Backward compatibility
     def lamp_on(self, player_id):
         self.lamp_full(player_id)
 
     def start_blink(self, player_id, interval_ms=300):
-        """Now used as lamp_full (answerer = bright)"""
-        self.lamp_full(player_id)
+        self.lamp_blink_full(player_id)
 
-    def stop_blink(self):
-        """No-op since we no longer blink"""
-        pass
+    # --- Blink loop ---
+
+    def _ensure_blink_task(self):
+        if self._blink_task is None:
+            self._blink_task = asyncio.create_task(self._blink_loop())
+
+    def _stop_blink_task(self):
+        if self._blink_task:
+            self._blink_task.cancel()
+            self._blink_task = None
+            self._blink_on = True
+
+    async def _blink_loop(self):
+        try:
+            while True:
+                await asyncio.sleep(self.BLINK_INTERVAL_MS / 1000)
+                self._blink_on = not self._blink_on
+                has_blinkers = False
+                for i in range(self.num_players):
+                    mode = self._lamp_mode[i]
+                    if mode == self.MODE_BLINK_FULL:
+                        has_blinkers = True
+                        brightness = self.BRIGHTNESS_FULL if self._blink_on else self.BRIGHTNESS_OFF
+                        self.lamp_pwms[i].duty_u16(brightness)
+                    elif mode == self.MODE_BLINK_DIM:
+                        has_blinkers = True
+                        brightness = self.BRIGHTNESS_DIM if self._blink_on else self.BRIGHTNESS_OFF
+                        self.lamp_pwms[i].duty_u16(brightness)
+                if not has_blinkers:
+                    break
+        except asyncio.CancelledError:
+            pass
+        self._blink_task = None
+
+    # --- Flash (celebration) ---
 
     async def flash_lamp(self, player_id, times=3, interval_ms=200):
         for _ in range(times):
-            self.lamp_full(player_id)
+            self.lamp_pwms[player_id].duty_u16(self.BRIGHTNESS_FULL)
             await asyncio.sleep(0.001 * interval_ms)
-            self.lamp_off(player_id)
+            self.lamp_pwms[player_id].duty_u16(self.BRIGHTNESS_OFF)
             await asyncio.sleep(0.001 * interval_ms)
 
-    # Polling loop
+    # --- Polling loop ---
+
     async def poll_loop(self):
         while True:
             now = time.ticks_us()

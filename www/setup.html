@@ -46,6 +46,8 @@
 
         .nav { text-align: center; margin-top: 16px; }
         .nav a { color: #457b9d; text-decoration: none; margin: 0 8px; }
+
+        .section-note { font-size: 0.85em; color: #888; margin: 0 0 8px; }
     </style>
 </head>
 <body>
@@ -76,7 +78,7 @@
 
     <div class="section">
         <h2>アクセスポイント (APモード)</h2>
-        <p style="font-size:0.85em;color:#888;margin:0 0 8px">Wi-Fi接続できない場合に自動的にAPモードで起動します</p>
+        <p class="section-note">Wi-Fi接続できない場合に自動的にAPモードで起動します</p>
         <div class="field">
             <label>AP SSID</label>
             <input type="text" id="apSsid" placeholder="HayaoshiButton">
@@ -90,8 +92,8 @@
     <div id="msg" class="message"></div>
 
     <div class="buttons">
-        <button class="btn-save" onclick="saveConfig()">設定を保存</button>
-        <button class="btn-reboot" onclick="reboot()">再起動</button>
+        <button type="button" class="btn-save" onclick="saveConfig()">設定を保存</button>
+        <button type="button" class="btn-reboot" onclick="reboot()">再起動</button>
     </div>
 
     <div class="nav">

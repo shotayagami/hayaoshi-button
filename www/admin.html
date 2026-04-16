@@ -8,6 +8,7 @@
     <style>
         body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #1a1a2e; color: #eee; }
         h1 { text-align: center; margin: 0 0 16px; font-size: 1.4em; }
+        .link-wifi { font-size: 0.5em; color: #457b9d; }
 
         .status-bar {
             display: flex; justify-content: space-between; align-items: center;
@@ -22,9 +23,17 @@
         .ws-connected { color: #2d6a4f; }
         .ws-disconnected { color: #e76f51; }
 
+        .audio-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .audio-title { font-size: 0.8em; color: #888; }
+        .audio-label { font-size: 0.75em; cursor: pointer; display: flex; align-items: center; gap: 2px; }
+        .audio-status { font-size: 0.75em; cursor: pointer; }
+
+        .hidden { display: none; }
+
         .controls {
             display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; justify-content: center;
         }
+        .controls-judge { margin-top: 4px; }
         .controls button {
             padding: 12px 24px; border: none; border-radius: 8px; font-size: 1em;
             cursor: pointer; font-weight: bold; color: #fff;
@@ -75,6 +84,7 @@
         .settings {
             background: #16213e; padding: 12px; border-radius: 8px;
         }
+        .settings-space { margin-top: 12px; }
         .settings h3 { margin: 0 0 8px; font-size: 1em; }
         .settings-grid { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; }
         .settings-grid label { font-size: 0.85em; }
@@ -82,6 +92,21 @@
             background: #1a1a2e; border: 1px solid #444; color: #eee; padding: 4px 8px;
             border-radius: 4px; width: 80px; font-size: 0.9em;
         }
+
+        .options-list { display: flex; flex-direction: column; gap: 6px; }
+        .option-label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+        .option-check { width: 18px; height: 18px; cursor: pointer; }
+        .option-check-sm { width: 16px; height: 16px; cursor: pointer; }
+        .max-accepts-input { width: 60px; padding: 4px; font-size: 14px; }
+        .hint-text { color: #999; font-size: 12px; }
+        .penalty-select { background: #1a1a2e; color: #eee; border: 1px solid #444; border-radius: 4px; padding: 2px 4px; }
+        .batch-settings { margin-left: 24px; margin-top: 4px; }
+        .batch-order-settings { margin-left: 22px; margin-top: 2px; }
+        .batch-label { font-size: 0.85em; }
+        .batch-label-dim { font-size: 0.85em; color: #888; }
+        .batch-points-input { width: 180px; padding: 2px 6px; border-radius: 4px; border: 1px solid #444; background: #1a1a2e; color: #eee; font-size: 0.85em; }
+
+        .history-scroll { overflow-x: auto; }
         .history-table { width: 100%; border-collapse: collapse; font-size: 0.8em; }
         .history-table th, .history-table td {
             padding: 4px 6px; border: 1px solid #333; text-align: center; white-space: nowrap;
@@ -92,42 +117,79 @@
         .history-table .h-incorrect { color: #e76f51; }
         .history-table .h-penalty { color: #666; font-style: italic; }
         .history-table .h-round { background: #16213e; font-weight: bold; color: #888; }
+
+        .sound-file-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .btn-sound { padding: 4px 12px; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85em; }
+        .btn-sound-select { background: #444; color: #eee; }
+        .btn-sound-upload { background: #2d6a4f; }
+        .sound-file-name { font-size: 0.85em; color: #888; }
+        .sound-upload-status { font-size: 0.8em; color: #888; }
+
+        .reset-dialog {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center;
+        }
+        .reset-dialog.show { display: flex; }
+        .reset-dialog-body { background: #16213e; border-radius: 12px; padding: 24px; max-width: 360px; width: 90%; }
+        .reset-dialog-body h3 { margin: 0 0 16px; text-align: center; }
+        .reset-dialog-list { display: flex; flex-direction: column; gap: 10px; }
+        .reset-btn { padding: 12px; border: none; border-radius: 8px; font-size: 1em; cursor: pointer; color: #fff; }
+        .reset-btn-idle { background: #6c757d; }
+        .reset-btn-penalty { background: #f4a261; color: #222; }
+        .reset-btn-score { background: #e76f51; }
+        .reset-btn-all { background: #c9184a; }
+        .reset-btn-cancel { padding: 10px; background: #333; color: #888; border: none; border-radius: 8px; font-size: 0.9em; cursor: pointer; margin-top: 4px; }
+
+        .round-control {
+            background: #457b9d; border-radius: 8px; padding: 12px;
+            display: flex; align-items: center; justify-content: space-between; gap: 8px;
+        }
+        .round-control-label { font-size: 0.95em; font-weight: bold; color: #fff; }
+        .round-control-group { display: flex; align-items: center; gap: 6px; }
+        .round-control-btn {
+            width: 36px; height: 36px; border: none; border-radius: 6px;
+            background: #1a1a2e; color: #fff; font-size: 1.2em; font-weight: bold; cursor: pointer;
+        }
+        .round-control-input {
+            width: 50px; text-align: center; padding: 6px; border: none; border-radius: 6px;
+            background: #1a1a2e; color: #fff; font-size: 1.1em; font-weight: bold;
+        }
     </style>
 </head>
 <body>
-    <h1>早押しボタン 管理画面 <a href="/setup" style="font-size:0.5em;color:#457b9d">Wi-Fi設定</a></h1>
+    <h1>早押しボタン 管理画面 <a href="/setup" class="link-wifi">Wi-Fi設定</a></h1>
 
     <div class="status-bar">
         <div>
             状態: <span id="gameState" class="status-indicator status-idle">IDLE</span>
             <span>問題: <span id="roundNum">0</span>問目</span>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span style="font-size:0.8em;color:#888">音声:</span>
-            <label style="font-size:0.75em;cursor:pointer;display:flex;align-items:center;gap:2px">
+        <div class="audio-controls">
+            <span class="audio-title">音声:</span>
+            <label class="audio-label">
                 <input type="checkbox" id="audioAdmin" onchange="onAudioModeChange()" checked> 管理画面
             </label>
-            <label style="font-size:0.75em;cursor:pointer;display:flex;align-items:center;gap:2px">
+            <label class="audio-label">
                 <input type="checkbox" id="audioDisplay" onchange="onAudioModeChange()"> 表示画面
             </label>
-            <label style="font-size:0.75em;cursor:pointer;display:flex;align-items:center;gap:2px">
+            <label class="audio-label">
                 <input type="checkbox" id="audioDfplayer" onchange="onAudioModeChange()" checked> DFPlayer
             </label>
-            <span id="audioStatus" style="font-size:0.75em;cursor:pointer" onclick="unlockAdminAudio()">🔇</span>
+            <span id="audioStatus" class="audio-status" onclick="unlockAdminAudio()">🔇</span>
             <span id="wsStatus" class="ws-status ws-disconnected">切断中</span>
         </div>
     </div>
 
     <div class="controls">
-        <button class="btn-jingle" onclick="sendJingle()">JINGLE (出題)</button>
-        <button class="btn-countdown" onclick="sendCountdown()">COUNTDOWN (10秒)</button>
-        <button class="btn-arm" onclick="sendArm()">ARM (受付開始)</button>
-        <button class="btn-stop" onclick="sendStop()">STOP (受付停止)</button>
-        <button class="btn-reset" onclick="showResetDialog()">RESET</button>
+        <button type="button" class="btn-jingle" onclick="sendJingle()">JINGLE (出題)</button>
+        <button type="button" class="btn-countdown" onclick="sendCountdown()">COUNTDOWN (10秒)</button>
+        <button type="button" class="btn-arm" onclick="sendArm()">ARM (受付開始)</button>
+        <button type="button" class="btn-stop" onclick="sendStop()">STOP (受付停止)</button>
+        <button type="button" class="btn-reset" onclick="showResetDialog()">RESET</button>
     </div>
-    <div class="controls" style="margin-top:4px">
-        <button class="btn-correct" id="btnCorrect" onclick="sendJudge('correct')" disabled>正解</button>
-        <button class="btn-incorrect" id="btnIncorrect" onclick="sendJudge('incorrect')" disabled>不正解</button>
+    <div class="controls controls-judge">
+        <button type="button" class="btn-correct" id="btnCorrect" onclick="sendJudge('correct')" disabled>正解</button>
+        <button type="button" class="btn-incorrect" id="btnIncorrect" onclick="sendJudge('incorrect')" disabled>不正解</button>
     </div>
 
     <div class="press-order">
@@ -139,7 +201,7 @@
 
     <table class="players-table">
         <thead>
-            <tr><th>#</th><th>色</th><th>名前</th><th>スコア</th><th>状態</th><th id="batchColHeader" style="display:none">正解</th></tr>
+            <tr><th>#</th><th>色</th><th>名前</th><th>スコア</th><th>状態</th><th id="batchColHeader" class="hidden">正解</th></tr>
         </thead>
         <tbody id="playerRows"></tbody>
     </table>
@@ -147,7 +209,7 @@
     <div class="settings">
         <h3>設定</h3>
         <div class="settings-grid">
-            <label>プレイヤー人数:</label>
+            <label for="numPlayers">プレイヤー人数:</label>
             <select id="numPlayers" onchange="sendSettings()">
                 <option value="2">2</option>
                 <option value="3">3</option>
@@ -157,27 +219,32 @@
                 <option value="7">7</option>
                 <option value="8" selected>8</option>
             </select>
-            <label>正解ポイント:</label>
+            <label for="pointsCorrect">正解ポイント:</label>
             <input type="number" id="pointsCorrect" value="10" onchange="sendSettings()">
-            <label>不正解ポイント:</label>
+            <label for="pointsIncorrect">不正解ポイント:</label>
             <input type="number" id="pointsIncorrect" value="-5" onchange="sendSettings()">
             <label>オプション:</label>
-            <div style="display:flex;flex-direction:column;gap:6px">
-                <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-                    <input type="checkbox" id="revival" onchange="sendSettings()" style="width:18px;height:18px;cursor:pointer">
-                    不正解時に前の回答者のボタンが復活する
+            <div class="options-list">
+                <label class="option-label">
+                    <input type="checkbox" id="revival" onchange="sendSettings()" class="option-check">
+                    不正解時に回答権を復活する
                 </label>
-                <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-                    <input type="checkbox" id="jingleAutoArm" onchange="sendSettings()" style="width:18px;height:18px;cursor:pointer">
+                <label class="option-label">
+                    同時受付数:
+                    <input type="number" id="maxAccepts" min="0" max="8" value="0" onchange="sendSettings()" class="max-accepts-input">
+                    <span class="hint-text">0=無制限</span>
+                </label>
+                <label class="option-label">
+                    <input type="checkbox" id="jingleAutoArm" onchange="sendSettings()" class="option-check">
                     ジングル再生時に自動で受付開始する
                 </label>
-                <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-                    <input type="checkbox" id="countdownAutoStop" onchange="sendSettings()" style="width:18px;height:18px;cursor:pointer">
+                <label class="option-label">
+                    <input type="checkbox" id="countdownAutoStop" onchange="sendSettings()" class="option-check">
                     カウントダウン終了時に自動で受付停止する
                 </label>
-                <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <label class="option-label">
                     誤答時
-                    <select id="penaltyRounds" onchange="sendSettings()" style="background:#1a1a2e;color:#eee;border:1px solid #444;border-radius:4px;padding:2px 4px">
+                    <select id="penaltyRounds" onchange="sendSettings()" class="penalty-select">
                         <option value="0">ペナルティなし</option>
                         <option value="1">1問休み</option>
                         <option value="2">2問休み</option>
@@ -185,19 +252,19 @@
                         <option value="5">5問休み</option>
                     </select>
                 </label>
-                <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-                    <input type="checkbox" id="batchMode" onchange="sendSettings()" style="width:18px;height:18px;cursor:pointer">
+                <label class="option-label">
+                    <input type="checkbox" id="batchMode" onchange="sendSettings()" class="option-check">
                     一括判定モード（書き問題用）
                 </label>
-                <div id="batchSettings" style="display:none;margin-left:24px;margin-top:4px">
-                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85em">
-                        <input type="checkbox" id="batchUseOrder" onchange="sendSettings()" style="width:16px;height:16px;cursor:pointer">
+                <div id="batchSettings" class="batch-settings hidden">
+                    <label class="option-label batch-label">
+                        <input type="checkbox" id="batchUseOrder" onchange="sendSettings()" class="option-check-sm">
                         着順ポイントを使用
                     </label>
-                    <div id="batchOrderSettings" style="display:none;margin-left:22px;margin-top:2px">
-                        <label style="display:flex;align-items:center;gap:6px;font-size:0.85em;color:#888">
+                    <div id="batchOrderSettings" class="batch-order-settings hidden">
+                        <label class="option-label batch-label-dim">
                             着順ポイント:
-                            <input type="text" id="batchPoints" value="10,8,6,4,3,2,1,1" onchange="sendSettings()" style="width:180px;padding:2px 6px;border-radius:4px;border:1px solid #444;background:#1a1a2e;color:#eee;font-size:0.85em">
+                            <input type="text" id="batchPoints" value="10,8,6,4,3,2,1,1" onchange="sendSettings()" class="batch-points-input">
                         </label>
                     </div>
                 </div>
@@ -205,9 +272,9 @@
         </div>
     </div>
 
-    <div class="settings" style="margin-top:12px">
+    <div class="settings settings-space">
         <h3>回答履歴</h3>
-        <div style="overflow-x:auto">
+        <div class="history-scroll">
             <table class="history-table" id="historyTable">
                 <thead id="historyHead"></thead>
                 <tbody id="historyBody"></tbody>
@@ -215,10 +282,10 @@
         </div>
     </div>
 
-    <div class="settings" style="margin-top:12px">
+    <div class="settings settings-space">
         <h3>音源管理</h3>
         <div class="settings-grid">
-            <label>対象:</label>
+            <label for="soundTarget">対象:</label>
             <select id="soundTarget">
                 <option value="p1">プレイヤー1</option>
                 <option value="p2">プレイヤー2</option>
@@ -236,26 +303,33 @@
                 <option value="batch_correct">一括判定</option>
             </select>
             <label>ファイル:</label>
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                <input type="file" id="soundFile" accept="audio/*" style="display:none" onchange="onFileSelected()">
-                <button onclick="document.getElementById('soundFile').click()" style="padding:4px 12px;background:#444;color:#eee;border:none;border-radius:4px;cursor:pointer;font-size:0.85em">ファイルを選択</button>
-                <span id="fileName" style="font-size:0.85em;color:#888">未選択</span>
-                <button onclick="uploadSound()" style="padding:4px 12px;background:#2d6a4f;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:0.85em">アップロード</button>
-                <span id="uploadStatus" style="font-size:0.8em;color:#888"></span>
+            <div class="sound-file-row">
+                <input type="file" id="soundFile" accept="audio/*" class="hidden" onchange="onFileSelected()">
+                <button type="button" onclick="document.getElementById('soundFile').click()" class="btn-sound btn-sound-select">ファイルを選択</button>
+                <span id="fileName" class="sound-file-name">未選択</span>
+                <button type="button" onclick="uploadSound()" class="btn-sound btn-sound-upload">アップロード</button>
+                <span id="uploadStatus" class="sound-upload-status"></span>
             </div>
         </div>
     </div>
 
-    <div id="resetDialog" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:100;align-items:center;justify-content:center">
-        <div style="background:#16213e;border-radius:12px;padding:24px;max-width:360px;width:90%">
-            <h3 style="margin:0 0 16px;text-align:center">RESET</h3>
-            <div style="display:flex;flex-direction:column;gap:10px">
-                <button onclick="doReset()" style="padding:12px;background:#6c757d;color:#fff;border:none;border-radius:8px;font-size:1em;cursor:pointer">受付停止のみ (IDLE に戻す)</button>
-                <button onclick="doResetPenalty()" style="padding:12px;background:#f4a261;color:#222;border:none;border-radius:8px;font-size:1em;cursor:pointer">ペナルティ一括解除</button>
-                <button onclick="doResetScore()" style="padding:12px;background:#e76f51;color:#fff;border:none;border-radius:8px;font-size:1em;cursor:pointer">スコアリセット (全員0点)</button>
-                <button onclick="doResetRound()" style="padding:12px;background:#457b9d;color:#fff;border:none;border-radius:8px;font-size:1em;cursor:pointer">問題番号リセット (0問目に戻す)</button>
-                <button onclick="doResetAll()" style="padding:12px;background:#c9184a;color:#fff;border:none;border-radius:8px;font-size:1em;cursor:pointer">全リセット (スコア + ペナルティ + 問題番号)</button>
-                <button onclick="hideResetDialog()" style="padding:10px;background:#333;color:#888;border:none;border-radius:8px;font-size:0.9em;cursor:pointer;margin-top:4px">キャンセル</button>
+    <div id="resetDialog" class="reset-dialog">
+        <div class="reset-dialog-body">
+            <h3>RESET</h3>
+            <div class="reset-dialog-list">
+                <button type="button" class="reset-btn reset-btn-idle" onclick="doReset()">受付停止のみ (IDLE に戻す)</button>
+                <button type="button" class="reset-btn reset-btn-penalty" onclick="doResetPenalty()">ペナルティ一括解除</button>
+                <button type="button" class="reset-btn reset-btn-score" onclick="doResetScore()">スコアリセット (全員0点)</button>
+                <div class="round-control">
+                    <label for="roundInput" class="round-control-label">問題番号</label>
+                    <div class="round-control-group">
+                        <button type="button" onclick="adjustRound(-1)" class="round-control-btn">-</button>
+                        <input type="number" id="roundInput" min="0" class="round-control-input" onchange="setRound(parseInt(this.value)||0)">
+                        <button type="button" onclick="adjustRound(1)" class="round-control-btn">+</button>
+                    </div>
+                </div>
+                <button type="button" class="reset-btn reset-btn-all" onclick="doResetAll()">全リセット (スコア + ペナルティ + 問題番号)</button>
+                <button type="button" class="reset-btn-cancel" onclick="hideResetDialog()">キャンセル</button>
             </div>
         </div>
     </div>

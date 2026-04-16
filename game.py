@@ -1,4 +1,3 @@
-import time
 import asyncio
 import protocol
 
@@ -10,6 +9,7 @@ class GameEngine:
         self.points_correct = points_correct
         self.points_incorrect = points_incorrect
         self.revival = False
+        self.max_accepts = 0  # 0=unlimited, N=max N simultaneous presses
         self.jingle_auto_arm = False
         self.countdown_auto_stop = False
         self.penalty_rounds = 0  # N問休み (0=無効)
@@ -34,6 +34,7 @@ class GameEngine:
         self.press_order = []  # [(player_id, timestamp_us), ...]
         self._first_press_us = 0
         self._pressed_set = set()
+
         self._answerer_idx = 0  # Index in press_order of current answerer
         self._last_wrong_id = -1  # Previous wrong answerer (for revival)
 
@@ -64,6 +65,10 @@ class GameEngine:
             return self.press_order[self._answerer_idx][0]
         return -1
 
+    def _active_press_count(self):
+        # Presses still in the queue (current answerer + waiting). Judged-past presses don't occupy a slot.
+        return max(0, len(self.press_order) - self._answerer_idx)
+
     def get_state_msg(self):
         msg = protocol.make_state_msg(
             self.state,
@@ -77,6 +82,7 @@ class GameEngine:
         msg["answerer_idx"] = self._answerer_idx
         msg["colors"] = self.colors
         msg["revival"] = self.revival
+        msg["max_accepts"] = self.max_accepts
         msg["jingle_auto_arm"] = self.jingle_auto_arm
         msg["countdown_auto_stop"] = self.countdown_auto_stop
         msg["penalty_rounds"] = self.penalty_rounds
@@ -92,17 +98,48 @@ class GameEngine:
     def _update_lamps(self):
         if not self._buttons:
             return
+
+        if self.state == protocol.STATE_ARMED:
+            can_accept = self.max_accepts == 0 or self._active_press_count() < self.max_accepts
+            for i in range(len(self.players)):
+                if self.players[i]["penalty"] > 0:
+                    self._buttons.lamp_off(i)
+                elif i in self._pressed_set:
+                    self._buttons.lamp_off(i)
+                elif can_accept:
+                    self._buttons.lamp_dim(i)
+                else:
+                    self._buttons.lamp_off(i)
+            return
+
+        if self.state != protocol.STATE_JUDGING:
+            self._buttons.all_lamps_off()
+            return
+
+        # JUDGING: set each player explicitly (no all_lamps_off to preserve blink task)
+        # answerer=full(100%), waiting-in-queue=blink_dim(20% blink), can-press=dim(20%)
         answerer = self.get_current_answerer()
+        assigned = set()
         for i, (pid, _) in enumerate(self.press_order):
+            assigned.add(pid)
             if pid == answerer:
-                # Current answerer: full brightness
                 self._buttons.lamp_full(pid)
             elif i > self._answerer_idx:
-                # Waiting: dim
+                self._buttons.lamp_blink_dim(pid)
+            elif self.revival and pid not in self._pressed_set:
+                # Revived: can press again
                 self._buttons.lamp_dim(pid)
             else:
-                # Already answered (incorrect): off
                 self._buttons.lamp_off(pid)
+
+        # Everyone else: can they still press?
+        can_accept = self.max_accepts == 0 or self._active_press_count() < self.max_accepts
+        for i in range(len(self.players)):
+            if i not in assigned:
+                if can_accept and self.players[i]["penalty"] <= 0:
+                    self._buttons.lamp_dim(i)
+                else:
+                    self._buttons.lamp_off(i)
 
     # Button event handlers
 
@@ -116,6 +153,10 @@ class GameEngine:
         # Penalty: player is sitting out
         if player_id < len(self.players) and self.players[player_id]["penalty"] > 0:
             print(f"Player {player_id+1}: penalty {self.players[player_id]['penalty']}, rejected")
+            return
+
+        # Max accepts limit — count only presses still in the queue (judged-past don't occupy a slot)
+        if self.max_accepts > 0 and self._active_press_count() >= self.max_accepts:
             return
 
         self._pressed_set.add(player_id)
@@ -181,9 +222,8 @@ class GameEngine:
             if self._dfp and self._dfp.is_ready():
                 self._dfp.play_sound(self._dfp.SOUND_CORRECT)
 
-            # Stop blink, turn off waiting players, flash for celebration
+            # All off, then flash for celebration
             if self._buttons:
-                self._buttons.stop_blink()
                 self._buttons.all_lamps_off()
                 asyncio.create_task(
                     self._buttons.flash_lamp(answerer_id, times=20, interval_ms=75)
@@ -205,10 +245,7 @@ class GameEngine:
                 player["penalty"] = self.penalty_rounds + 1
                 print(f"Penalty: Player {answerer_id+1} = {self.penalty_rounds} rounds")
 
-            if self._buttons:
-                self._buttons.stop_blink()
-
-            # Revival mode: previous wrong player can now re-press
+            # Revival: previous wrong answerer can now re-press
             if self.revival and self._last_wrong_id >= 0:
                 self._pressed_set.discard(self._last_wrong_id)
             self._last_wrong_id = answerer_id
@@ -233,13 +270,24 @@ class GameEngine:
                     "answerer_idx": self._answerer_idx,
                 })
             else:
-                # No one left, round over
-                self.state = protocol.STATE_SHOWING_RESULT
-                if self._buttons:
-                    self._buttons.all_lamps_off()
-                await self._broadcast_msg({
-                    "type": "no_answerer",
-                })
+                if self.revival:
+                    # Slots freed: clear press_order, re-arm
+                    self.press_order = []
+                    self._answerer_idx = 0
+                    self.state = protocol.STATE_ARMED
+                    self._update_lamps()
+                    await self._broadcast_msg({
+                        "type": "no_answerer",
+                        "revival": True,
+                    })
+                else:
+                    # No one left, round over
+                    self.state = protocol.STATE_SHOWING_RESULT
+                    if self._buttons:
+                        self._buttons.all_lamps_off()
+                    await self._broadcast_msg({
+                        "type": "no_answerer",
+                    })
 
     async def start_countdown(self):
         self.stop_countdown()
@@ -268,7 +316,9 @@ class GameEngine:
                     if self._dfp and self._dfp.is_ready():
                         self._dfp.play_sound(self._dfp.SOUND_COUNTDOWN_END)
                     if self.countdown_auto_stop:
+                        self._countdown_task = None
                         await self.stop()
+                        return
         except asyncio.CancelledError:
             pass
 
@@ -282,7 +332,6 @@ class GameEngine:
         self.state = protocol.STATE_IDLE
 
         if self._buttons:
-            self._buttons.stop_blink()
             self._buttons.all_lamps_off()
 
         await self._broadcast_msg(protocol.make_reset_msg(self.state))
@@ -297,7 +346,6 @@ class GameEngine:
         self.state = protocol.STATE_IDLE
 
         if self._buttons:
-            self._buttons.stop_blink()
             self._buttons.all_lamps_off()
 
         await self._broadcast_msg(protocol.make_reset_msg(self.state))
@@ -308,6 +356,7 @@ class GameEngine:
         self._first_press_us = 0
         self._answerer_idx = 0
         self._last_wrong_id = -1
+
         self.round += 1
         self.state = protocol.STATE_ARMED
 
@@ -316,9 +365,7 @@ class GameEngine:
             if p["penalty"] > 0:
                 p["penalty"] -= 1
 
-        if self._buttons:
-            self._buttons.stop_blink()
-            self._buttons.all_lamps_off()
+        self._update_lamps()
 
         await self._broadcast_msg(protocol.make_reset_msg(self.state))
         await self._broadcast_msg(self.get_state_msg())
@@ -414,6 +461,10 @@ class GameEngine:
         self.round = 0
         await self._broadcast_msg(self.get_state_msg())
 
+    async def set_round(self, value):
+        self.round = max(0, value)
+        await self._broadcast_msg(self.get_state_msg())
+
     # Admin actions
 
     async def set_player_name(self, player_id, name):
@@ -465,6 +516,10 @@ class GameEngine:
             self.revival = bool(settings["revival"])
             if self._save_config:
                 self._save_config("revival", self.revival)
+        if "max_accepts" in settings:
+            self.max_accepts = int(settings["max_accepts"])
+            if self._save_config:
+                self._save_config("max_accepts", self.max_accepts)
         if "jingle_auto_arm" in settings:
             self.jingle_auto_arm = bool(settings["jingle_auto_arm"])
             if self._save_config:

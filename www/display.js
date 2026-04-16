@@ -161,8 +161,14 @@ function handleMessage(msg) {
             renderPressOrder();
             break;
         case "no_answerer":
-            state.game_state = "showing_result";
-            state.answerer_id = -1;
+            if (msg.revival) {
+                state.game_state = "armed";
+                state.answerer_id = -1;
+                state.press_order = [];
+            } else {
+                state.game_state = "showing_result";
+                state.answerer_id = -1;
+            }
             renderAll();
             break;
         case "countdown":

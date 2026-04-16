@@ -59,6 +59,10 @@ function handleMessage(msg) {
             updateJudgeButtons();
             break;
         case "judgment":
+            {
+                const pressIdx = state.press_order.findIndex(pr => pr.player_id === msg.player_id);
+                msg.order = pressIdx >= 0 ? pressIdx + 1 : 0;
+            }
             pendingJudgments.push(msg);
             if (msg.result === "correct") {
                 state.game_state = "showing_result";
@@ -90,9 +94,17 @@ function handleMessage(msg) {
             renderPlayers();
             break;
         case "no_answerer":
-            state.game_state = "showing_result";
-            state.answerer_id = -1;
-            finalizeHistory();
+            if (msg.revival) {
+                // Revival: round continues, don't finalize yet
+                state.game_state = "armed";
+                state.answerer_id = -1;
+                state.press_order = [];
+                state.answerer_idx = 0;
+            } else {
+                state.game_state = "showing_result";
+                state.answerer_id = -1;
+                finalizeHistory();
+            }
             renderAll();
             break;
         case "reset":
@@ -129,7 +141,7 @@ function handleMessage(msg) {
             if (shouldPlayLocal()) playAdminSound("jingle");
             break;
         case "show_reset_dialog":
-            showResetDialog();
+            toggleResetDialog();
             break;
         case "countdown":
             if (shouldPlayLocal()) playAdminBgm("countdown");
@@ -164,6 +176,10 @@ function renderGameState() {
     el.textContent = labels[state.game_state] || state.game_state;
     el.className = `status-indicator status-${state.game_state}`;
     document.getElementById("roundNum").textContent = state.round;
+    const roundInput = document.getElementById("roundInput");
+    if (roundInput && document.activeElement !== roundInput) {
+        roundInput.value = state.round;
+    }
 }
 
 function renderPlayers() {
@@ -241,6 +257,7 @@ function renderSettings() {
     document.getElementById("pointsIncorrect").value = state.points_incorrect;
     document.getElementById("numPlayers").value = state.players.length;
     document.getElementById("revival").checked = !!state.revival;
+    document.getElementById("maxAccepts").value = state.max_accepts || 0;
     document.getElementById("jingleAutoArm").checked = !!state.jingle_auto_arm;
     document.getElementById("countdownAutoStop").checked = !!state.countdown_auto_stop;
     document.getElementById("penaltyRounds").value = state.penalty_rounds || 0;
@@ -250,9 +267,9 @@ function renderSettings() {
     }
     document.getElementById("batchUseOrder").checked = !!state.batch_use_order;
     // Show/hide batch settings
-    document.getElementById("batchSettings").style.display = state.batch_mode ? "block" : "none";
-    document.getElementById("batchOrderSettings").style.display = state.batch_use_order ? "block" : "none";
-    document.getElementById("batchColHeader").style.display = state.batch_mode ? "" : "none";
+    document.getElementById("batchSettings").classList.toggle("hidden", !state.batch_mode);
+    document.getElementById("batchOrderSettings").classList.toggle("hidden", !state.batch_use_order);
+    document.getElementById("batchColHeader").classList.toggle("hidden", !state.batch_mode);
 }
 
 function updateJudgeButtons() {
@@ -284,11 +301,21 @@ function sendReset() {
 }
 
 function showResetDialog() {
-    document.getElementById("resetDialog").style.display = "flex";
+    document.getElementById("resetDialog").classList.add("show");
+    document.getElementById("roundInput").value = state.round;
 }
 
 function hideResetDialog() {
-    document.getElementById("resetDialog").style.display = "none";
+    document.getElementById("resetDialog").classList.remove("show");
+}
+
+function toggleResetDialog() {
+    const dlg = document.getElementById("resetDialog");
+    if (dlg.classList.contains("show")) {
+        hideResetDialog();
+    } else {
+        showResetDialog();
+    }
 }
 
 function doReset() {
@@ -309,6 +336,20 @@ function doResetScore() {
 function doResetRound() {
     ws && ws.send(JSON.stringify({ type: "reset_round" }));
     hideResetDialog();
+}
+
+function adjustRound(delta) {
+    const input = document.getElementById("roundInput");
+    const current = parseInt(input.value);
+    const base = isNaN(current) ? (state.round || 0) : current;
+    const newVal = Math.max(0, base + delta);
+    input.value = newVal;
+    ws && ws.send(JSON.stringify({ type: "set_round", value: newVal }));
+}
+
+function setRound(value) {
+    const newVal = Math.max(0, value);
+    ws && ws.send(JSON.stringify({ type: "set_round", value: newVal }));
 }
 
 function doResetAll() {
@@ -357,6 +398,7 @@ function sendSettings() {
     const pc = isNaN(pcVal) ? 10 : pcVal;
     const pi = isNaN(piVal) ? -5 : piVal;
     const rv = document.getElementById("revival").checked;
+    const ma = parseInt(document.getElementById("maxAccepts").value) || 0;
     const jaa = document.getElementById("jingleAutoArm").checked;
     const cas = document.getElementById("countdownAutoStop").checked;
     const pr = parseInt(document.getElementById("penaltyRounds").value) || 0;
@@ -366,7 +408,7 @@ function sendSettings() {
     const bp = bpStr.split(",").map(v => parseInt(v.trim()) || 0);
     ws && ws.send(JSON.stringify({
         type: "settings", num_players: np, points_correct: pc, points_incorrect: pi,
-        revival: rv, jingle_auto_arm: jaa, countdown_auto_stop: cas, penalty_rounds: pr,
+        revival: rv, max_accepts: ma, jingle_auto_arm: jaa, countdown_auto_stop: cas, penalty_rounds: pr,
         batch_mode: bm, batch_use_order: buo, batch_points: bp
     }));
 }
@@ -546,8 +588,8 @@ function recordThrough() {
     const record = { round: state.round, type: getQuestionType(), through: true, players: [] };
     state.players.forEach(p => {
         record.players.push({
-            id: p.id, penalty: p.penalty || 0, order: 0,
-            result: null, delta: 0,
+            id: p.id, penalty: p.penalty || 0, pressed: false,
+            results: [], delta: 0,
         });
     });
     history.push(record);
@@ -557,19 +599,15 @@ function finalizeHistory() {
     if (history.find(h => h.round === state.round)) return;
     const record = { round: state.round || history.length + 1, type: getQuestionType(), through: false, players: [] };
     state.players.forEach(p => {
-        const pressEntry = state.press_order.find(pr => pr.player_id === p.id);
-        const order = pressEntry ? state.press_order.indexOf(pressEntry) + 1 : 0;
-        // Find judgment for this player from accumulated results
-        const j = pendingJudgments.find(jj => jj.player_id === p.id);
-        let result = j ? j.result : null;
-        let delta = j ? j.points_delta : 0;
-        // Player pressed but no judgment yet (waiting in queue)
-        if (!j && order > 0) {
-            result = null;
-        }
+        // Collect ALL judgments for this player (revival can produce multiple)
+        const judgments = pendingJudgments.filter(jj => jj.player_id === p.id);
+        const results = judgments.map(j => ({ result: j.result, order: j.order || 0 }));
+        const delta = judgments.reduce((sum, j) => sum + (j.points_delta || 0), 0);
+        // Check if player pressed at all (in current or previous press_orders)
+        const pressed = judgments.length > 0 || state.press_order.some(pr => pr.player_id === p.id);
         record.players.push({
-            id: p.id, penalty: p.penalty || 0, order: order,
-            result: result, delta: delta,
+            id: p.id, penalty: p.penalty || 0, pressed: pressed,
+            results: results, delta: delta,
         });
     });
     history.push(record);
@@ -580,10 +618,9 @@ function recordBatchHistory(results) {
     state.players.forEach(p => {
         const r = results.find(x => x.player_id === p.id);
         const pressEntry = state.press_order.find(pr => pr.player_id === p.id);
-        const order = pressEntry ? state.press_order.indexOf(pressEntry) + 1 : 0;
         record.players.push({
-            id: p.id, penalty: p.penalty || 0, order: order,
-            result: r ? r.result : null, delta: r ? r.delta : 0,
+            id: p.id, penalty: p.penalty || 0, pressed: !!pressEntry,
+            results: r ? [r.result] : [], delta: r ? r.delta : 0,
         });
     });
     history.push(record);
@@ -624,9 +661,20 @@ function renderHistory() {
                 if (!ph) { rows += '<td>-</td>'; return; }
 
                 let cell = '';
-                if (ph.penalty > 0 && !ph.result) {
+                if (ph.results && ph.results.length > 0) {
+                    // Show sequence: 1× 3○ etc.
+                    const marks = ph.results.map(r => {
+                        const ord = r.order > 0 ? r.order : '';
+                        return r.result === "correct"
+                            ? `<span class="h-correct">${ord}○</span>`
+                            : `<span class="h-incorrect">${ord}×</span>`;
+                    }).join('');
+                    const sign = ph.delta >= 0 ? '+' : '';
+                    cell = `${marks} ${sign}${ph.delta}`;
+                } else if (ph.penalty > 0 && !(ph.result)) {
                     cell = `<span class="h-penalty">休</span>`;
                 } else if (ph.result === "correct") {
+                    // Legacy single-result format
                     const orderStr = ph.order > 0 ? ph.order + '位 ' : '';
                     const sign = ph.delta >= 0 ? '+' : '';
                     cell = `<span class="h-correct">${orderStr}○ ${sign}${ph.delta}</span>`;
@@ -634,6 +682,8 @@ function renderHistory() {
                     const orderStr = ph.order > 0 ? ph.order + '位 ' : '';
                     const sign = ph.delta >= 0 ? '+' : '';
                     cell = `<span class="h-incorrect">${orderStr}× ${sign}${ph.delta}</span>`;
+                } else if (ph.pressed) {
+                    cell = `押`;
                 } else if (ph.order > 0) {
                     cell = `${ph.order}位`;
                 } else {
