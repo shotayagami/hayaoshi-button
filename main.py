@@ -131,8 +131,13 @@ buttons.set_host_callback(game.on_host_press)
 # Restore saved settings
 if "colors" in config:
     game.colors = config["colors"]
-if "revival" in config:
-    game.revival = config["revival"]
+if "revive_mode" in config:
+    v = config["revive_mode"]
+    if v in ("none", "immediate", "next_answer", "next_wrong"):
+        game.revive_mode = v
+elif "revival" in config:
+    # Legacy field: true -> "next_wrong", false -> "none"
+    game.revive_mode = "next_wrong" if config["revival"] else "none"
 if "max_accepts" in config:
     game.max_accepts = config["max_accepts"]
 if "jingle_auto_arm" in config:
@@ -151,6 +156,8 @@ if "batch_incorrect" in config:
     game.batch_incorrect = config["batch_incorrect"]
 if "batch_noanswer" in config:
     game.batch_noanswer = config["batch_noanswer"]
+if "max_correct" in config:
+    game.max_correct = max(1, int(config["max_correct"]))
 
 # Config save callback
 def on_save_config(key, value):

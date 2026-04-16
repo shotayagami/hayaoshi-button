@@ -131,9 +131,12 @@ function handleMessage(msg) {
             renderPressOrder();
             break;
         case "judgment":
-            if (msg.result === "correct") {
+            if (msg.correct_count !== undefined) state.correct_count = msg.correct_count;
+            if (msg.result === "correct" && !msg.round_continues) {
                 state.game_state = "showing_result";
             }
+            // Otherwise (multi-correct continuing) state updates via follow-up
+            // next_answerer / no_answerer messages.
             state.answerer_id = msg.player_id;
             const p = state.players.find(pl => pl.id === msg.player_id);
             if (p) p.score = msg.new_score;
@@ -230,6 +233,15 @@ function renderStateLabel() {
     const [text, bg] = labels[state.game_state] || ["---", "#666"];
     el.textContent = text;
     el.style.background = bg;
+    // Remaining corrects (visible only in multi-correct mode)
+    const maxC = state.max_correct || 1;
+    const cnt = state.correct_count || 0;
+    const remaining = Math.max(0, maxC - cnt);
+    const rEl = document.getElementById("correctRemaining");
+    if (rEl) {
+        rEl.classList.toggle("hidden", maxC <= 1);
+        document.getElementById("correctRemainingValue").textContent = `${remaining}/${maxC}`;
+    }
 }
 
 function renderMainDisplay() {
@@ -257,7 +269,7 @@ function renderMainDisplay() {
 
         el.innerHTML = `
             <div class="first-presser">
-                <div class="player-num" style="background:${color}">${answererId + 1}</div>
+                <div class="player-num" style="background:${color};color:${textColorFor(color)}">${answererId + 1}</div>
                 <div class="player-name" style="color:${color}">${escapeHtml(name)}</div>
                 <div class="press-label">正解!</div>
             </div>
@@ -277,7 +289,7 @@ function renderMainDisplay() {
 
         el.innerHTML = `
             <div class="first-presser">
-                <div class="player-num" style="background:${color}">${answererId + 1}</div>
+                <div class="player-num" style="background:${color};color:${textColorFor(color)}">${answererId + 1}</div>
                 <div class="player-name" style="color:${color}">${escapeHtml(name)}</div>
                 <div class="press-label">${orderLabel}</div>
             </div>

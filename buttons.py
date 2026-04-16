@@ -41,6 +41,9 @@ class ButtonManager:
     STUCK_LOW_TIMEOUT_US = 10_000_000  # 10 seconds
     # Periodically re-initialize Pin objects to refresh pull-up config.
     REFRESH_PERIOD_S = 30
+    # Pin must be stably HIGH for this long before we accept the next press.
+    # Filters out chatter that happens while the user is holding the button.
+    RELEASE_STABLE_US = 80_000  # 80ms
 
     def __init__(self, num_players=8):
         self.num_players = num_players
@@ -71,6 +74,14 @@ class ButtonManager:
         self._host_last_us = {k: 0 for k in self.host_pins}
         self._host_prev = {k: 1 for k in self.host_pins}
         self._host_low_since = {k: 0 for k in self.host_pins}
+
+        # "Ready for next press" flags. Set True only after the pin has been
+        # stably HIGH (released) for a while. Prevents chatter-during-hold from
+        # firing duplicate IRQs while a button is pressed continuously.
+        self._player_ready = [True] * num_players
+        self._host_ready = {k: True for k in self.host_pins}
+        self._player_high_since = [0] * num_players
+        self._host_high_since = {k: 0 for k in self.host_pins}
 
         # Pre-allocated pending flags (set from ISR, consumed in scheduled ctx)
         self._player_press_pending = [False] * num_players
@@ -113,6 +124,11 @@ class ButtonManager:
     def _make_player_irq(self, idx):
         # Closure captures idx. Created once at setup; handler itself runs in ISR context.
         def handler(pin):
+            # Reject IRQs while the button is still considered "held".
+            # Released-state is (re)set only when the pin has been stably HIGH,
+            # which reliably filters chatter during a long press.
+            if not self._player_ready[idx]:
+                return
             now = time.ticks_us()
             # ticks_diff is signed; a negative value means ticks_us wrapped past
             # last_us (>~9 min gap on RP2). Treat only small positive diffs as
@@ -120,6 +136,7 @@ class ButtonManager:
             diff = time.ticks_diff(now, self._player_last_us[idx])
             if 0 < diff <= self.DEBOUNCE_US:
                 return
+            self._player_ready[idx] = False
             self._player_last_us[idx] = now
             self._player_press_ts[idx] = now
             self._player_press_pending[idx] = True
@@ -132,10 +149,13 @@ class ButtonManager:
 
     def _make_host_irq(self, name):
         def handler(pin):
+            if not self._host_ready[name]:
+                return
             now = time.ticks_us()
             diff = time.ticks_diff(now, self._host_last_us[name])
             if 0 < diff <= self.DEBOUNCE_US:
                 return
+            self._host_ready[name] = False
             self._host_last_us[name] = now
             self._host_press_ts[name] = now
             self._host_press_pending[name] = True
@@ -255,12 +275,28 @@ class ButtonManager:
 
     # --- Flash (celebration) ---
 
+    def _apply_mode(self, player_id):
+        """Drive PWM to match the current logical _lamp_mode for this player."""
+        if not (0 <= player_id < self.num_players):
+            return
+        mode = self._lamp_mode[player_id]
+        pwm = self.lamp_pwms[player_id]
+        if mode in (self.MODE_FULL, self.MODE_BLINK_FULL):
+            pwm.duty_u16(self.BRIGHTNESS_FULL)
+        elif mode in (self.MODE_DIM, self.MODE_BLINK_DIM):
+            pwm.duty_u16(self.BRIGHTNESS_DIM)
+        else:
+            pwm.duty_u16(self.BRIGHTNESS_OFF)
+
     async def flash_lamp(self, player_id, times=3, interval_ms=200):
         for _ in range(times):
             self.lamp_pwms[player_id].duty_u16(self.BRIGHTNESS_FULL)
             await asyncio.sleep(0.001 * interval_ms)
             self.lamp_pwms[player_id].duty_u16(self.BRIGHTNESS_OFF)
             await asyncio.sleep(0.001 * interval_ms)
+        # Restore PWM to match whatever lamp mode is currently set (which may
+        # have been updated during the flash by _update_lamps).
+        self._apply_mode(player_id)
 
     # --- Diagnostic / Recovery ---
 
@@ -295,11 +331,20 @@ class ButtonManager:
                 val = self.player_pins[i].value()
                 prev = self._player_prev[i]
                 self._player_prev[i] = val
-                if val == 1 and prev == 0:
-                    # Release: clear stuck-low counter
-                    self._player_low_since[i] = 0
-                    print("P%d release" % (i + 1))
-                elif val == 0:
+                if val == 1:
+                    # Track how long the pin has been stably HIGH. After
+                    # RELEASE_STABLE_US, mark the button as ready for next press.
+                    if self._player_high_since[i] == 0:
+                        self._player_high_since[i] = now
+                    elif (not self._player_ready[i]
+                          and time.ticks_diff(now, self._player_high_since[i])
+                              > self.RELEASE_STABLE_US):
+                        self._player_ready[i] = True
+                    if prev == 0:
+                        self._player_low_since[i] = 0
+                        print("P%d release" % (i + 1))
+                else:  # val == 0
+                    self._player_high_since[i] = 0
                     if self._player_low_since[i] == 0:
                         self._player_low_since[i] = now
                     elif time.ticks_diff(now, self._player_low_since[i]) > self.STUCK_LOW_TIMEOUT_US:
@@ -307,26 +352,32 @@ class ButtonManager:
                         print("P%d stuck-low recovery" % (i + 1))
                         self._player_prev[i] = 1
                         self._player_low_since[i] = 0
-                else:
-                    self._player_low_since[i] = 0
+                        self._player_ready[i] = True  # allow next press
 
             # --- Host button state tracking ---
             for name, pin in self.host_pins.items():
                 val = pin.value()
                 prev = self._host_prev[name]
                 self._host_prev[name] = val
-                if val == 1 and prev == 0:
-                    self._host_low_since[name] = 0
-                    print("Host release: %s" % name)
-                elif val == 0:
+                if val == 1:
+                    if self._host_high_since[name] == 0:
+                        self._host_high_since[name] = now
+                    elif (not self._host_ready[name]
+                          and time.ticks_diff(now, self._host_high_since[name])
+                              > self.RELEASE_STABLE_US):
+                        self._host_ready[name] = True
+                    if prev == 0:
+                        self._host_low_since[name] = 0
+                        print("Host release: %s" % name)
+                else:  # val == 0
+                    self._host_high_since[name] = 0
                     if self._host_low_since[name] == 0:
                         self._host_low_since[name] = now
                     elif time.ticks_diff(now, self._host_low_since[name]) > self.STUCK_LOW_TIMEOUT_US:
                         print("Host stuck-low recovery: %s" % name)
                         self._host_prev[name] = 1
                         self._host_low_since[name] = 0
-                else:
-                    self._host_low_since[name] = 0
+                        self._host_ready[name] = True
 
             # --- Periodic pin refresh ---
             if time.ticks_diff(time.ticks_ms(), last_refresh_ms) > self.REFRESH_PERIOD_S * 1000:

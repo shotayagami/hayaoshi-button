@@ -65,11 +65,17 @@ function handleMessage(msg) {
                 msg.order = pressIdx >= 0 ? pressIdx + 1 : 0;
             }
             pendingJudgments.push(msg);
+            if (msg.correct_count !== undefined) state.correct_count = msg.correct_count;
             if (msg.result === "correct") {
-                state.game_state = "showing_result";
-                finalizeHistory();
-            } else {
-                // Server holds judgment for ~3s before advancing; block UI too
+                if (msg.round_continues) {
+                    // Multi-correct: state changes come via a follow-up
+                    // next_answerer or no_answerer message. Don't touch state here.
+                } else {
+                    state.game_state = "showing_result";
+                    finalizeHistory();
+                }
+            } else if ((state.max_correct || 1) <= 1) {
+                // Regular mode: server holds for 3s animation — block UI too.
                 judgeCooldownUntil = Date.now() + 3200;
                 setTimeout(updateJudgeButtons, 3300);
             }
@@ -185,6 +191,21 @@ function renderGameState() {
     if (roundInput && document.activeElement !== roundInput) {
         roundInput.value = state.round;
     }
+    // Remaining corrects (visible only in multi-correct mode)
+    const maxC = state.max_correct || 1;
+    const cnt = state.correct_count || 0;
+    const remaining = Math.max(0, maxC - cnt);
+    const rEl = document.getElementById("correctRemaining");
+    if (rEl) {
+        rEl.classList.toggle("hidden", maxC <= 1);
+        document.getElementById("correctRemainingValue").textContent = `${remaining}/${maxC}`;
+    }
+}
+
+function onMultiCorrectToggle() {
+    const on = document.getElementById("multiCorrect").checked;
+    document.getElementById("maxCorrectRow").classList.toggle("hidden", !on);
+    sendSettings();
 }
 
 function renderPlayers() {
@@ -260,26 +281,32 @@ function renderPressOrder() {
     }).join("");
 }
 
+function setIfNotEditing(id, value) {
+    // Avoid clobbering a user's in-progress input when a state update arrives.
+    const el = document.getElementById(id);
+    if (el && document.activeElement !== el) el.value = value;
+}
+
 function renderSettings() {
-    document.getElementById("pointsCorrect").value = state.points_correct;
-    document.getElementById("pointsIncorrect").value = state.points_incorrect;
-    document.getElementById("numPlayers").value = state.players.length;
-    document.getElementById("revival").checked = !!state.revival;
-    document.getElementById("maxAccepts").value = state.max_accepts || 0;
+    setIfNotEditing("pointsCorrect", state.points_correct);
+    setIfNotEditing("pointsIncorrect", state.points_incorrect);
+    setIfNotEditing("numPlayers", state.players.length);
+    setIfNotEditing("reviveMode", state.revive_mode || (state.revival ? "next_wrong" : "none"));
+    setIfNotEditing("maxAccepts", state.max_accepts || 0);
+    const mc = state.max_correct || 1;
+    const multi = mc > 1;
+    const multiBox = document.getElementById("multiCorrect");
+    if (document.activeElement !== multiBox) multiBox.checked = multi;
+    setIfNotEditing("maxCorrect", multi ? mc : 3);
+    document.getElementById("maxCorrectRow").classList.toggle("hidden", !multi);
     document.getElementById("jingleAutoArm").checked = !!state.jingle_auto_arm;
     document.getElementById("countdownAutoStop").checked = !!state.countdown_auto_stop;
-    document.getElementById("penaltyRounds").value = state.penalty_rounds || 0;
+    setIfNotEditing("penaltyRounds", state.penalty_rounds || 0);
     document.getElementById("batchMode").checked = !!state.batch_mode;
     renderBatchPoints();
     document.getElementById("batchUseOrder").checked = !!state.batch_use_order;
-    if (state.batch_incorrect !== undefined) {
-        const bi = document.getElementById("batchIncorrect");
-        if (document.activeElement !== bi) bi.value = state.batch_incorrect;
-    }
-    if (state.batch_noanswer !== undefined) {
-        const bn = document.getElementById("batchNoanswer");
-        if (document.activeElement !== bn) bn.value = state.batch_noanswer;
-    }
+    if (state.batch_incorrect !== undefined) setIfNotEditing("batchIncorrect", state.batch_incorrect);
+    if (state.batch_noanswer !== undefined) setIfNotEditing("batchNoanswer", state.batch_noanswer);
     // Show/hide batch settings
     document.getElementById("batchSettings").classList.toggle("hidden", !state.batch_mode);
     document.getElementById("batchOrderSettings").classList.toggle("hidden", !state.batch_use_order);
@@ -416,6 +443,11 @@ function sendJudge(result) {
         return;
     }
     ws && ws.send(JSON.stringify({ type: "judge", result }));
+    // Short client-side cooldown so the buttons visually disable, preventing
+    // accidental double-clicks / chatter from sending extra judgments.
+    judgeCooldownUntil = Math.max(judgeCooldownUntil, Date.now() + 500);
+    setTimeout(updateJudgeButtons, 550);
+    updateJudgeButtons();
 }
 
 function setName(playerId, name) {
@@ -441,8 +473,11 @@ function sendSettings() {
     const np = isNaN(npVal) ? 8 : npVal;
     const pc = isNaN(pcVal) ? 10 : pcVal;
     const pi = isNaN(piVal) ? -5 : piVal;
-    const rv = document.getElementById("revival").checked;
+    const rvMode = document.getElementById("reviveMode").value;
     const ma = parseInt(document.getElementById("maxAccepts").value) || 0;
+    const multiOn = document.getElementById("multiCorrect").checked;
+    const mcVal = parseInt(document.getElementById("maxCorrect").value) || 3;
+    const mc = multiOn ? Math.max(2, mcVal) : 1;
     const jaa = document.getElementById("jingleAutoArm").checked;
     const cas = document.getElementById("countdownAutoStop").checked;
     const pr = parseInt(document.getElementById("penaltyRounds").value) || 0;
@@ -456,7 +491,7 @@ function sendSettings() {
     const bn = isNaN(bnVal) ? 0 : bnVal;
     ws && ws.send(JSON.stringify({
         type: "settings", num_players: np, points_correct: pc, points_incorrect: pi,
-        revival: rv, max_accepts: ma, jingle_auto_arm: jaa, countdown_auto_stop: cas, penalty_rounds: pr,
+        revive_mode: rvMode, max_accepts: ma, max_correct: mc, jingle_auto_arm: jaa, countdown_auto_stop: cas, penalty_rounds: pr,
         batch_mode: bm, batch_use_order: buo, batch_points: bp,
         batch_incorrect: bi, batch_noanswer: bn
     }));

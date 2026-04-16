@@ -29,6 +29,10 @@
         .audio-status { font-size: 0.75em; cursor: pointer; }
 
         .hidden { display: none; }
+        .correct-remaining {
+            margin-left: 12px; padding: 3px 10px; border-radius: 4px;
+            background: #7209b7; color: #fff; font-size: 0.85em; font-weight: bold;
+        }
 
         .controls {
             display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; justify-content: center;
@@ -170,6 +174,7 @@
         <div>
             状態: <span id="gameState" class="status-indicator status-idle">IDLE</span>
             <span>問題: <span id="roundNum">0</span>問目</span>
+            <span id="correctRemaining" class="correct-remaining hidden">正解残り: <span id="correctRemainingValue">0</span></span>
         </div>
         <div class="audio-controls">
             <span class="audio-title">音声:</span>
@@ -233,13 +238,27 @@
             <label>オプション:</label>
             <div class="options-list">
                 <label class="option-label">
-                    <input type="checkbox" id="revival" onchange="sendSettings()" class="option-check">
-                    不正解時に回答権を復活する
+                    不正解時:
+                    <select id="reviveMode" onchange="sendSettings()" class="penalty-select">
+                        <option value="none">復活なし</option>
+                        <option value="immediate">即座に復活</option>
+                        <option value="next_answer">次の回答まで休み</option>
+                        <option value="next_wrong">次の誤答まで休み</option>
+                    </select>
                 </label>
                 <label class="option-label">
                     同時受付数:
                     <input type="number" id="maxAccepts" min="0" max="8" value="0" onchange="sendSettings()" class="max-accepts-input">
                     <span class="hint-text">0=無制限</span>
+                </label>
+                <label class="option-label">
+                    <input type="checkbox" id="multiCorrect" onchange="onMultiCorrectToggle()" class="option-check">
+                    複数正解モード（一問多答）
+                </label>
+                <label class="option-label" id="maxCorrectRow">
+                    正解最大数:
+                    <input type="number" id="maxCorrect" min="2" max="8" value="3" onchange="sendSettings()" class="max-accepts-input">
+                    <span class="hint-text">N人正解するまで受付継続</span>
                 </label>
                 <label class="option-label">
                     <input type="checkbox" id="jingleAutoArm" onchange="sendSettings()" class="option-check">

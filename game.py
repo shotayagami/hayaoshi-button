@@ -1,5 +1,11 @@
 import asyncio
+import time
 import protocol
+
+
+# Minimum gap between accepted judgments. Filters physical button chatter
+# that's slower than the IRQ debounce (>20ms) and web UI double-clicks.
+JUDGE_COOLDOWN_US = 500_000  # 500ms
 
 
 class GameEngine:
@@ -8,7 +14,12 @@ class GameEngine:
         self.num_players = num_players
         self.points_correct = points_correct
         self.points_incorrect = points_incorrect
-        self.revival = False
+        # Revival mode on incorrect answers:
+        #   "none"        — locked out for the round
+        #   "immediate"   — can press again right away
+        #   "next_answer" — revives when any next judgment occurs
+        #   "next_wrong"  — revives when next incorrect occurs (legacy "revival=True")
+        self.revive_mode = "none"
         self.max_accepts = 0  # 0=unlimited, N=max N simultaneous presses
         self.jingle_auto_arm = False
         self.countdown_auto_stop = False
@@ -18,6 +29,7 @@ class GameEngine:
         self.batch_points = [10, 8, 6, 4, 3, 2, 1, 1]
         self.batch_incorrect = -5  # Incorrect points used only when batch_use_order=True
         self.batch_noanswer = 0    # Unpressed + unchecked points used only when batch_use_order=True
+        self.max_correct = 1       # Max correct answers per round. >1 enables multi-correct mode.
         self._countdown_task = None
         self._countdown_value = 0
         self.round = 0
@@ -40,6 +52,8 @@ class GameEngine:
         self._answerer_idx = 0  # Index in press_order of current answerer
         self._last_wrong_id = -1  # Previous wrong answerer (for revival)
         self._judging_lock = False  # Set while processing an incorrect judgment
+        self._last_judge_us = 0  # ticks_us of the last accepted judgment
+        self._correct_count = 0  # Corrects awarded in current round (for max_correct)
 
         # Callback for broadcasting messages
         self._broadcast = None
@@ -84,7 +98,9 @@ class GameEngine:
         msg["answerer_id"] = self.get_current_answerer()
         msg["answerer_idx"] = self._answerer_idx
         msg["colors"] = self.colors
-        msg["revival"] = self.revival
+        msg["revive_mode"] = self.revive_mode
+        # Legacy field kept for any older client: True if revival happens at all
+        msg["revival"] = self.revive_mode != "none"
         msg["max_accepts"] = self.max_accepts
         msg["jingle_auto_arm"] = self.jingle_auto_arm
         msg["countdown_auto_stop"] = self.countdown_auto_stop
@@ -94,6 +110,8 @@ class GameEngine:
         msg["batch_points"] = self.batch_points
         msg["batch_incorrect"] = self.batch_incorrect
         msg["batch_noanswer"] = self.batch_noanswer
+        msg["max_correct"] = self.max_correct
+        msg["correct_count"] = self._correct_count
         return msg
 
     async def _broadcast_msg(self, msg):
@@ -131,17 +149,22 @@ class GameEngine:
                 self._buttons.lamp_full(pid)
             elif i > self._answerer_idx:
                 self._buttons.lamp_blink_dim(pid)
-            elif self.revival and pid not in self._pressed_set:
-                # Revived: can press again
+            elif pid not in self._pressed_set:
+                # Discarded from pressed_set (revival re-entry or multi-correct
+                # re-press) — this player can press again.
                 self._buttons.lamp_dim(pid)
             else:
                 self._buttons.lamp_off(pid)
 
-        # Everyone else: can they still press?
+        # Everyone else: can they still press? Players already in pressed_set
+        # (judged wrong in a prior wave of the same round) must stay off — even
+        # though they're not in the current press_order.
         can_accept = self.max_accepts == 0 or self._active_press_count() < self.max_accepts
         for i in range(len(self.players)):
             if i not in assigned:
-                if can_accept and self.players[i]["penalty"] <= 0:
+                if i in self._pressed_set:
+                    self._buttons.lamp_off(i)
+                elif can_accept and self.players[i]["penalty"] <= 0:
                     self._buttons.lamp_dim(i)
                 else:
                     self._buttons.lamp_off(i)
@@ -225,27 +248,81 @@ class GameEngine:
         if self._judging_lock:
             return
 
+        # Short cooldown against physical button chatter / web UI double-clicks.
+        # ticks_diff is signed — negative means a wrap occurred (long ago), OK to accept.
+        if self._last_judge_us:
+            diff = time.ticks_diff(time.ticks_us(), self._last_judge_us)
+            if 0 < diff < JUDGE_COOLDOWN_US:
+                return
+        self._last_judge_us = time.ticks_us()
+
         answerer_id = self.press_order[self._answerer_idx][0]
         player = self.players[answerer_id]
 
         if result == protocol.RESULT_CORRECT:
+            # next_answer mode: any judgment (including this correct) revives
+            # the previously-queued wrong player.
+            if self.revive_mode == "next_answer" and self._last_wrong_id >= 0:
+                self._pressed_set.discard(self._last_wrong_id)
+                self._last_wrong_id = -1
+
             delta = self.points_correct
             player["score"] += delta
-            self.state = protocol.STATE_SHOWING_RESULT
+            self._correct_count += 1
+
+            # Multi-correct mode: keep accepting until max_correct is reached.
+            round_continues = self._correct_count < self.max_correct
 
             if self._dfp and self._dfp.is_ready():
                 self._dfp.play_sound(self._dfp.SOUND_CORRECT)
 
-            # All off, then flash for celebration
-            if self._buttons:
-                self._buttons.all_lamps_off()
-                asyncio.create_task(
-                    self._buttons.flash_lamp(answerer_id, times=20, interval_ms=75)
-                )
+            judgment_msg = protocol.make_judgment_msg(result, answerer_id, player["score"], delta)
+            judgment_msg["correct_count"] = self._correct_count
+            if round_continues:
+                judgment_msg["round_continues"] = True
 
-            await self._broadcast_msg(
-                protocol.make_judgment_msg(result, answerer_id, player["score"], delta)
-            )
+            if not round_continues:
+                # Max corrects reached: end the round.
+                self.state = protocol.STATE_SHOWING_RESULT
+                if self._buttons:
+                    self._buttons.all_lamps_off()
+                    asyncio.create_task(
+                        self._buttons.flash_lamp(answerer_id, times=20, interval_ms=75)
+                    )
+                await self._broadcast_msg(judgment_msg)
+                return
+
+            # round_continues: short flash, advance queue, keep state open.
+            # Let the correct answerer press again — needed especially when
+            # max_correct exceeds the player count (one player may answer
+            # multiple times in a one-question-many-answers round).
+            self._pressed_set.discard(answerer_id)
+
+            if self._buttons:
+                asyncio.create_task(
+                    self._buttons.flash_lamp(answerer_id, times=6, interval_ms=100)
+                )
+            await self._broadcast_msg(judgment_msg)
+
+            # Advance to next queued player. If queue is empty, re-arm.
+            self._answerer_idx += 1
+            if self._answerer_idx < len(self.press_order):
+                self._update_lamps()
+                next_id = self.press_order[self._answerer_idx][0]
+                await self._broadcast_msg({
+                    "type": "next_answerer",
+                    "player_id": next_id,
+                    "answerer_idx": self._answerer_idx,
+                })
+            else:
+                self.press_order = []
+                self._answerer_idx = 0
+                self.state = protocol.STATE_ARMED
+                self._update_lamps()
+                await self._broadcast_msg({
+                    "type": "no_answerer",
+                    "revival": True,
+                })
 
         else:
             self._judging_lock = True
@@ -261,17 +338,34 @@ class GameEngine:
                     player["penalty"] = self.penalty_rounds + 1
                     print(f"Penalty: Player {answerer_id+1} = {self.penalty_rounds} rounds")
 
-                # Revival: previous wrong answerer can now re-press
-                if self.revival and self._last_wrong_id >= 0:
+                # Revival: honor the selected revive_mode.
+                # - "immediate": this wrong player revives right away
+                # - "next_wrong": the previously-queued wrong revives now
+                # - "next_answer": queue this wrong (revives on any next judgment)
+                # - "none": stay locked out
+                if self.revive_mode == "next_wrong" and self._last_wrong_id >= 0:
                     self._pressed_set.discard(self._last_wrong_id)
-                self._last_wrong_id = answerer_id
+                    self._last_wrong_id = answerer_id
+                elif self.revive_mode == "immediate":
+                    self._pressed_set.discard(answerer_id)
+                    self._last_wrong_id = -1
+                elif self.revive_mode == "next_answer":
+                    # Any judgment triggers revival — if one's already queued,
+                    # this wrong counts as the "next judgment" for that one.
+                    if self._last_wrong_id >= 0:
+                        self._pressed_set.discard(self._last_wrong_id)
+                    self._last_wrong_id = answerer_id
+                else:
+                    self._last_wrong_id = answerer_id
 
                 await self._broadcast_msg(
                     protocol.make_judgment_msg(result, answerer_id, player["score"], delta)
                 )
 
-                # Wait for animation before moving to next
-                await asyncio.sleep(3)
+                # Skip the animation wait in multi-correct mode — play needs to
+                # stay snappy across several correct/incorrect judgments.
+                if self.max_correct <= 1:
+                    await asyncio.sleep(3)
 
                 # If state changed externally during the wait (reset/stop/arm),
                 # abort — do not stomp on the new state.
@@ -291,24 +385,18 @@ class GameEngine:
                         "answerer_idx": self._answerer_idx,
                     })
                 else:
-                    if self.revival:
-                        # Slots freed: clear press_order, re-arm
-                        self.press_order = []
-                        self._answerer_idx = 0
-                        self.state = protocol.STATE_ARMED
-                        self._update_lamps()
-                        await self._broadcast_msg({
-                            "type": "no_answerer",
-                            "revival": True,
-                        })
-                    else:
-                        # No one left, round over
-                        self.state = protocol.STATE_SHOWING_RESULT
-                        if self._buttons:
-                            self._buttons.all_lamps_off()
-                        await self._broadcast_msg({
-                            "type": "no_answerer",
-                        })
+                    # Queue exhausted. Accept more presses until STOP is pressed.
+                    # The revival setting still governs whether the just-wrong
+                    # players can re-press (_pressed_set is kept intact; revival
+                    # mode discards previous wrong inside the judge loop above).
+                    self.press_order = []
+                    self._answerer_idx = 0
+                    self.state = protocol.STATE_ARMED
+                    self._update_lamps()
+                    await self._broadcast_msg({
+                        "type": "no_answerer",
+                        "revival": True,  # signals clients to keep the round open
+                    })
             finally:
                 self._judging_lock = False
 
@@ -353,6 +441,7 @@ class GameEngine:
         self._answerer_idx = 0
         self._last_wrong_id = -1
         self._judging_lock = False
+        self._correct_count = 0
         self.state = protocol.STATE_IDLE
 
         if self._buttons:
@@ -368,6 +457,7 @@ class GameEngine:
         self._answerer_idx = 0
         self._last_wrong_id = -1
         self._judging_lock = False
+        self._correct_count = 0
         self.state = protocol.STATE_IDLE
 
         if self._buttons:
@@ -382,6 +472,7 @@ class GameEngine:
         self._answerer_idx = 0
         self._last_wrong_id = -1
         self._judging_lock = False
+        self._correct_count = 0
 
         self.round += 1
         self.state = protocol.STATE_ARMED
@@ -563,10 +654,17 @@ class GameEngine:
                     self.players.append({"id": pid, "name": f"Player {pid + 1}", "score": 0, "penalty": 0})
                 while len(self.players) > new_num:
                     self.players.pop()
-        if "revival" in settings:
-            self.revival = bool(settings["revival"])
+        if "revive_mode" in settings:
+            v = settings["revive_mode"]
+            if v in ("none", "immediate", "next_answer", "next_wrong"):
+                self.revive_mode = v
+                if self._save_config:
+                    self._save_config("revive_mode", self.revive_mode)
+        elif "revival" in settings:
+            # Legacy boolean -> map to the equivalent mode
+            self.revive_mode = "next_wrong" if settings["revival"] else "none"
             if self._save_config:
-                self._save_config("revival", self.revival)
+                self._save_config("revive_mode", self.revive_mode)
         if "max_accepts" in settings:
             self.max_accepts = int(settings["max_accepts"])
             if self._save_config:
@@ -603,4 +701,8 @@ class GameEngine:
             self.batch_noanswer = int(settings["batch_noanswer"])
             if self._save_config:
                 self._save_config("batch_noanswer", self.batch_noanswer)
+        if "max_correct" in settings:
+            self.max_correct = max(1, int(settings["max_correct"]))
+            if self._save_config:
+                self._save_config("max_correct", self.max_correct)
         await self._broadcast_msg(self.get_state_msg())

@@ -18,6 +18,8 @@
             font-size: 1.2em; font-weight: bold; letter-spacing: 0.1em;
         }
         .header .state-label { font-size: 0.7em; margin-left: 16px; padding: 4px 12px; border-radius: 4px; background: #666; }
+        .header .correct-remaining { font-size: 0.7em; margin-left: 12px; padding: 4px 12px; border-radius: 4px; background: #7209b7; }
+        .hidden { display: none !important; }
 
         /* Main display area */
         .main-display {
@@ -167,6 +169,7 @@
     <div class="header">
         早押しボタン
         <span id="stateLabel" class="state-label">IDLE</span>
+        <span id="correctRemaining" class="correct-remaining hidden">正解残り <span id="correctRemainingValue">0</span></span>
     </div>
 
     <div class="main-display" id="mainDisplay">
