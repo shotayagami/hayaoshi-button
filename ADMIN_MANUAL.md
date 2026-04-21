@@ -299,3 +299,56 @@
 - 着順ポイント: 10, 8, 6, 4, 3, 2, 1, 1
 - 無回答ポイント: 0（ペナルティなし）
 - 不正解ポイント: -3 程度（厳しめなら -5）
+
+---
+
+## 付録: 開発者向け 起動フロー（main.py起点）
+
+運用者向けの操作ではなく、保守・改修時に把握しやすいように起動順を簡略化して示します。
+
+```mermaid
+flowchart TD
+  A[main.py 起動] --> B[config読込]
+  B --> C[wifi.auto_connect]
+  C -->|STA成功| D[既存Wi-Fi接続]
+  C -->|失敗/未設定| E[AP起動]
+  D --> F[IP確定]
+  E --> F
+  F --> G[主要コンポーネント初期化]
+  G --> H[HTTP/WSサーバ起動]
+  H --> I[WS接続ごとに初期state同期]
+  I --> J[受信 type ごとに game メソッド実行]
+  J --> K[状態更新 + broadcast]
+```
+
+### 補足ポイント
+
+- **Wi-Fi確立**: STA優先。失敗時は AP モードへフォールバック
+- **入力経路**:
+  - 物理プレイヤーボタン -> `ButtonManager` IRQ -> `GameEngine.on_player_press()`
+  - 物理司会者ボタン -> `ButtonManager` IRQ -> `GameEngine.on_host_press()`
+  - 管理画面操作 -> WebSocket `type` -> `GameEngine.arm()/judge()/stop()/update_settings()`
+- **配信経路**: `GameEngine` の状態更新通知は `WSManager.broadcast()` に渡され、クライアントごとの送信キューで非同期配信
+- **主要状態**: `idle` -> `armed` -> `judging` -> `showing_result`（`stop/reset` で `idle`）
+
+### `msg.type` ごとの遷移（全C2Sコマンド）
+
+| `msg.type` | 受理条件（主） | 主な状態遷移 | 代表的な通知 | 実装メソッド（`main.py` での呼び先） |
+| --- | --- | --- | --- | --- |
+| `register` | 接続中クライアント | 状態は維持（クライアント種別登録） | なし | `ws_mgr.set_type(ws, msg.get("client_type"))` |
+| `set_name` | 有効な `player_id` | 状態は維持（名前更新） | `player_update` | `await game.set_player_name(msg["player_id"], msg["name"])` |
+| `set_score` | 有効な `player_id` | 状態は維持（スコア更新） | `player_update` | `await game.set_player_score(msg["player_id"], msg["score"])` |
+| `arm` | どの状態でも可 | `* -> armed` | `reset(armed)` -> `state` | `await game.arm()` |
+| `judge` | `judging` かつ回答者あり | 正解: `showing_result` または継続 / 不正解: 次回答者へ or `armed` | `judgment`, `next_answerer` / `no_answerer` | `await game.judge(msg["result"])` |
+| `batch_judge` | `armed` または `judging` | `showing_result` | `batch_result` | `await game.batch_judge(...)` |
+| `stop` | どの状態でも可 | `* -> idle` | `reset(idle)` | `await game.stop()` |
+| `reset` | どの状態でも可 | `* -> idle` | `reset(idle)` | `await game.reset()` |
+| `clear_penalty` | どの状態でも可 | 状態は維持（全員ペナルティ解除） | `state` | `await game.clear_penalty()` |
+| `reset_scores` | どの状態でも可 | 状態は維持（全員スコア0） | `state` | `await game.reset_scores()` |
+| `reset_round` | どの状態でも可 | 状態は維持（問題番号0） | `state` | `await game.reset_round()` |
+| `set_round` | どの状態でも可 | 状態は維持（問題番号更新） | `state` | `await game.set_round(int(msg.get("value", 0)))` |
+| `jingle` | どの状態でも可 | 原則維持（自動ARM有効時は `armed`） | `jingle`（必要時 `reset(armed)` -> `state`） | `dfp.play_sound(...)` + `await ws_mgr.broadcast(...)` + `await game.arm()`（自動ARM時） |
+| `countdown` | どの状態でも可 | 即時変更なし（自動STOP有効かつ0到達で `idle`） | `countdown`, `countdown_tick`（必要時 `reset(idle)`） | `dfp.play_sound(...)` + `await game.start_countdown()` |
+| `set_colors` | `colors` 配列受領時 | 状態は維持（表示色更新） | `colors_update` | `await game.set_colors(msg["colors"])` |
+| `settings` | どの状態でも可 | 状態は維持（設定値更新） | `state` | `await game.update_settings(msg)` |
+| `audio_mode` | どの状態でも可 | 状態は維持（音声出力先更新） | `audio_mode` | `dfp.enabled = ...` + `await ws_mgr.broadcast(...)` |

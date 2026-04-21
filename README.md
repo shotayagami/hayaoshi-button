@@ -536,3 +536,90 @@ mpremote cp main.py :main.py && mpremote cp game.py :game.py && mpremote cp butt
 - **WebSocket送信はキュー駆動**: クライアントごとに送信ワーカーを生成、5秒タイムアウトで半死クライアントを切り離す。`broadcast()` はキューに積むだけで非ブロック
 - **判定クールダウン**: サーバー側500msの全判定クールダウン + 管理画面UIの同期ロック。物理ボタンチャタリングと UI ダブルクリックを両方防止
 - **一問多答モードの正解者再受付**: 正解時に `pressed_set.discard(answerer_id)` で解放、`max_correct > プレイヤー数`でも成立
+
+## 開発者向け: 起動シーケンス（main.py起点）
+
+`main.py` の実行時に、システムは次の順で初期化・遷移します。
+
+```mermaid
+flowchart TD
+  A[起動: main.py] --> B[config.json読込]
+  B --> C[wifi.auto_connect]
+  C -->|成功| D[STA接続]
+  C -->|失敗/未設定| E[AP起動]
+  D --> F[IP確定]
+  E --> F
+  F --> G[Discord通知 STA時のみ]
+  G --> H[ButtonManager / WSManager / GameEngine / DFPlayer 初期化]
+  H --> I[コールバック接続]
+  I --> J[Microdot ルート登録]
+  J --> K[asyncio.run run]
+  K --> L[DFPlayer初期化]
+  K --> M[watchdog / diagnostic タスク起動]
+  K --> N[HTTP+WS サーバ起動]
+```
+
+### 1) Wi-Fi接続確立
+
+- `wifi.auto_connect(config)` で STA を優先し、接続失敗時は AP にフォールバック
+- 接続後のIPを `wifi.get_ip()` で取得し、`/admin` と `/` のURLを表示
+- STA時かつ `discord_webhook` 設定時のみ Discord 通知を送信
+
+### 2) コンポーネント初期化と依存接続
+
+- `buttons = ButtonManager(...)`
+- `ws_mgr = WSManager()`
+- `game = GameEngine(...)`
+- `dfp = DFPlayer()`
+- 依存関係:
+  - `game.set_broadcast(ws_mgr.broadcast)`（ゲーム通知をWS配信）
+  - `buttons.set_player_callback(game.on_player_press)`（物理プレイヤーボタン入力）
+  - `buttons.set_host_callback(game.on_host_press)`（物理司会者ボタン入力）
+  - `game.set_buttons(buttons)`, `game.set_dfplayer(dfp)`
+
+### 3) WebSocket処理の流れ
+
+- `/ws` 接続時に `ws_mgr.add(ws)` でクライアント管理を開始
+- 接続直後に `game.get_state_msg()` を1回送信して初期同期
+- 以後は受信メッセージ `type` に応じて `game.arm()`, `game.judge()`, `game.update_settings()` などを呼び出し
+- `WSManager` は送信を即実行せず、各クライアントのキューへ enqueue（遅延・半死クライアントの影響を局所化）
+
+### 4) ゲーム状態遷移
+
+- 状態定義: `idle` / `armed` / `judging` / `showing_result`
+- 主遷移:
+  - `arm()` -> `armed`
+  - 最初の押下 (`on_player_press`) -> `judging`
+  - `judge(correct)`:
+    - 単独正解モード: `showing_result`
+    - 複数正解モード: 上限未達なら継続、キュー枯渇時は `armed` に戻して受付継続
+  - `judge(incorrect)`: 次回答者へ移動、キュー枯渇時は `armed`
+  - `stop()` / `reset()` -> `idle`
+
+### 5) `msg.type` ごとの状態遷移表（WebSocket全C2Sコマンド）
+
+| `msg.type` | 受理条件（主） | 主な状態遷移 | 主なS2C通知 | 実装メソッド（`main.py` での呼び先） |
+| --- | --- | --- | --- | --- |
+| `register` | 接続中の任意クライアント | 状態変更なし（WSクライアント種別を登録） | なし（サーバ内部管理のみ） | `ws_mgr.set_type(ws, msg.get("client_type"))` |
+| `set_name` | `player_id` が有効範囲 | 状態変更なし（プレイヤー名更新） | `player_update` | `await game.set_player_name(msg["player_id"], msg["name"])` |
+| `set_score` | `player_id` が有効範囲 | 状態変更なし（単一スコア更新） | `player_update` | `await game.set_player_score(msg["player_id"], msg["score"])` |
+| `arm` | なし（どの状態でも可） | `* -> armed`（ラウンド+1、押下キュー初期化） | `reset(game_state=armed)` -> `state` | `await game.arm()` |
+| `judge` (`result=correct`) | `state=judging` かつ回答者あり | 上限到達: `judging -> showing_result` / 未到達: `judging` 継続 or キュー枯渇で `armed` | `judgment(result=correct)`、必要に応じて `next_answerer` または `no_answerer` | `await game.judge(msg["result"])` |
+| `judge` (`result=incorrect`) | `state=judging` かつ回答者あり | `judging` 継続（次回答者へ）/ キュー枯渇で `armed` | `judgment(result=incorrect)`、必要に応じて `next_answerer` または `no_answerer` | `await game.judge(msg["result"])` |
+| `batch_judge` | `state in {armed, judging}` | `armed/judging -> showing_result` | `batch_result` | `await game.batch_judge(msg.get("correct_ids", []), sound=msg.get("sound", "correct"), noanswer_ids=msg.get("noanswer_ids", []))` |
+| `stop` | なし（どの状態でも可） | `* -> idle`（押下キュー初期化） | `reset(game_state=idle)` | `await game.stop()` |
+| `reset` | なし（どの状態でも可） | `* -> idle`（押下キュー初期化） | `reset(game_state=idle)` | `await game.reset()` |
+| `clear_penalty` | なし（どの状態でも可） | 状態変更なし（全員のペナルティを解除） | `state` | `await game.clear_penalty()` |
+| `reset_scores` | なし（どの状態でも可） | 状態変更なし（全員スコアを0へ） | `state` | `await game.reset_scores()` |
+| `reset_round` | なし（どの状態でも可） | 状態変更なし（問題番号を0へ） | `state` | `await game.reset_round()` |
+| `set_round` | なし（どの状態でも可） | 状態変更なし（問題番号を任意値へ） | `state` | `await game.set_round(int(msg.get("value", 0)))` |
+| `jingle` | なし（どの状態でも可） | 原則状態維持（`jingle_auto_arm=true` の場合は `* -> armed`） | `jingle`（必要に応じて `reset(armed)` -> `state`） | `if dfp.is_ready(): dfp.play_sound(dfp.SOUND_JINGLE)` + `await ws_mgr.broadcast({"type": "jingle"})` + `if game.jingle_auto_arm: await game.arm()` |
+| `countdown` | なし（どの状態でも可） | 即時の状態変更なし（0到達時 `countdown_auto_stop=true` なら `* -> idle`） | `countdown`、`countdown_tick`（必要に応じて `reset(idle)`） | `if dfp.is_ready(): dfp.play_sound(dfp.SOUND_COUNTDOWN)` + `await game.start_countdown()` |
+| `set_colors` | `colors` 配列受領時 | 状態変更なし（表示色更新） | `colors_update` | `await game.set_colors(msg["colors"])` |
+| `settings` | なし（どの状態でも可） | 状態変更なし（設定値のみ更新） | `state` | `await game.update_settings(msg)` |
+| `audio_mode` | なし（どの状態でも可） | 状態変更なし（音声出力先フラグ更新） | `audio_mode` | `dfp.enabled = msg.get("dfplayer", True)` + `await ws_mgr.broadcast({"type": "audio_mode", "display": msg.get("display", False)})` |
+
+補足:
+- `judge` は受理条件を満たさない場合（`state!=judging` など）状態変更せず無視されます。
+- `judge(incorrect)` は単独正解モード時のみ 3秒待機後に次回答者へ進みます（多答モード時は待機なし）。
+- `settings` は `GameEngine.update_settings()` で `config.json` 保存コールバックを通し永続化されます。
