@@ -8,17 +8,17 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: system-ui, sans-serif; background: #0a0a1a; color: #eee;
+            background: var(--color-bg); color: var(--color-text);
             height: 100vh; display: flex; flex-direction: column; overflow: hidden;
         }
 
         /* Header */
         .header {
-            text-align: center; padding: 12px; background: #16213e;
+            text-align: center; padding: 12px; background: var(--color-surface);
             font-size: 1.2em; font-weight: bold; letter-spacing: 0.1em;
         }
-        .header .state-label { font-size: 0.7em; margin-left: 16px; padding: 4px 12px; border-radius: 4px; background: #666; }
-        .header .correct-remaining { font-size: 0.7em; margin-left: 12px; padding: 4px 12px; border-radius: 4px; background: #7209b7; }
+        .header .state-label { font-size: 0.7em; margin-left: 16px; padding: 4px 12px; border-radius: var(--radius-sm); background: var(--color-text-subtle); }
+        .header .correct-remaining { font-size: 0.7em; margin-left: 12px; padding: 4px 12px; border-radius: var(--radius-sm); background: var(--color-purple); }
         .hidden { display: none !important; }
 
         /* Main display area */
@@ -33,7 +33,7 @@
             text-align: center; animation: pulse 2s ease-in-out infinite;
         }
         .display-armed {
-            font-size: 3.5em; font-weight: bold; color: #2d6a4f;
+            font-size: 3.5em; font-weight: bold; color: var(--color-correct);
             text-align: center; animation: pulse 1.5s ease-in-out infinite;
         }
         @keyframes pulse {
@@ -67,19 +67,19 @@
             text-align: center;
         }
         .countdown-number {
-            font-size: 12em; font-weight: bold; color: #f4a261;
+            font-size: 12em; font-weight: bold; color: var(--color-warning);
             text-shadow: 0 0 40px rgba(244, 162, 97, 0.5);
             animation: countPulse 1s ease-in-out infinite;
         }
-        .countdown-number.urgent { color: #e76f51; text-shadow: 0 0 40px rgba(231, 111, 81, 0.7); }
-        .countdown-label { font-size: 1.5em; color: #888; margin-top: 8px; }
+        .countdown-number.urgent { color: var(--color-incorrect); text-shadow: 0 0 40px rgba(231, 111, 81, 0.7); }
+        .countdown-label { font-size: 1.5em; color: var(--color-text-dim); margin-top: 8px; }
         @keyframes countPulse {
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.05); }
         }
         .countdown-bar {
             position: absolute; bottom: 0; left: 0; height: 6px;
-            background: #f4a261; transition: width 1s linear;
+            background: var(--color-warning); transition: width 1s linear;
         }
 
         /* Result overlay */
@@ -89,8 +89,8 @@
             font-size: 6em; font-weight: bold; z-index: 10;
             animation: resultFlash 0.5s ease-out;
         }
-        .result-correct { background: rgba(45, 106, 79, 0.85); color: #fff; }
-        .result-incorrect { background: rgba(231, 111, 81, 0.85); color: #fff; }
+        .result-correct { background: rgba(45, 106, 79, 0.85); color: var(--color-text-on-accent); }
+        .result-incorrect { background: rgba(231, 111, 81, 0.85); color: var(--color-text-on-accent); }
         @keyframes resultFlash {
             0% { opacity: 0; transform: scale(1.5); }
             100% { opacity: 1; transform: scale(1); }
@@ -106,7 +106,7 @@
 
         /* Press order bar */
         .press-order-bar {
-            display: flex; gap: 8px; padding: 12px 16px; background: #111;
+            display: flex; gap: 8px; padding: 12px 16px; background: var(--color-surface-muted);
             justify-content: center; align-items: center; min-height: 56px; flex-wrap: wrap;
         }
         .press-order-item {
@@ -117,10 +117,10 @@
         /* Scoreboard */
         .scoreboard {
             display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
-            background: #16213e; border-top: 2px solid #333;
+            background: var(--color-surface); border-top: 2px solid var(--color-border);
         }
         .score-cell {
-            padding: 12px 8px; text-align: center; border-right: 1px solid #333;
+            padding: 12px 8px; text-align: center; border-right: 1px solid var(--color-border);
             transition: background 0.3s;
         }
         .score-cell:last-child { border-right: none; }
@@ -137,7 +137,7 @@
             opacity: 0.5;
         }
         .penalty-label {
-            font-size: 0.7em; color: #e76f51; font-weight: bold;
+            font-size: 0.7em; color: var(--color-incorrect); font-weight: bold;
             background: rgba(231,111,81,0.15); border-radius: 4px;
             padding: 2px 6px; margin-top: 4px; display: inline-block;
         }
@@ -155,7 +155,7 @@
             text-align: center;
         }
         .audio-unlock-icon { font-size: 5em; margin-bottom: 16px; }
-        .audio-unlock-text { font-size: 1.5em; color: #888; }
+        .audio-unlock-text { font-size: 1.5em; color: var(--color-text-dim); }
     </style>
 </head>
 <body>

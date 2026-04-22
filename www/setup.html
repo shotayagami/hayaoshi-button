@@ -4,56 +4,44 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>早押しボタン - Wi-Fi設定</title>
+    <link rel="stylesheet" href="style.css">
     <style>
-        body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #1a1a2e; color: #eee; }
-        h1 { text-align: center; margin: 0 0 16px; font-size: 1.4em; }
-
         .status {
-            background: #16213e; padding: 12px; border-radius: 8px; margin-bottom: 16px;
+            margin-bottom: 16px;
         }
         .status-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
-        .status-label { color: #888; }
+        .status-label { color: var(--color-text-dim); }
         .status-value { font-weight: bold; }
-        .mode-sta { color: #2d6a4f; }
-        .mode-ap { color: #f4a261; }
+        .mode-sta { color: var(--color-correct); }
+        .mode-ap { color: var(--color-warning); }
 
         .section {
-            background: #16213e; padding: 16px; border-radius: 8px; margin-bottom: 16px;
+            margin-bottom: 16px;
         }
-        .section h2 { margin: 0 0 12px; font-size: 1.1em; border-bottom: 1px solid #333; padding-bottom: 8px; }
-
-        .field { margin-bottom: 12px; }
-        .field label { display: block; font-size: 0.85em; color: #888; margin-bottom: 4px; }
-        .field input {
-            width: 100%; box-sizing: border-box; padding: 8px; border-radius: 4px;
-            border: 1px solid #444; background: #1a1a2e; color: #eee; font-size: 1em;
+        .section h2 {
+            margin: 0 0 12px; font-size: 1.1em; border-bottom: 1px solid var(--color-border); padding-bottom: 8px;
         }
+        .field input { width: 100%; padding: 8px; font-size: 1em; }
 
         .buttons { display: flex; gap: 8px; margin-top: 16px; }
-        .buttons button {
-            flex: 1; padding: 12px; border: none; border-radius: 8px;
-            font-size: 1em; font-weight: bold; cursor: pointer; color: #fff;
-        }
-        .btn-save { background: #2d6a4f; }
-        .btn-reboot { background: #e76f51; }
-        .btn-save:disabled, .btn-reboot:disabled { opacity: 0.4; cursor: not-allowed; }
+        .buttons .btn { flex: 1; }
 
         .message {
             padding: 8px 12px; border-radius: 4px; margin-top: 12px; display: none;
         }
-        .message.success { display: block; background: rgba(45, 106, 79, 0.3); color: #2d6a4f; }
-        .message.error { display: block; background: rgba(231, 111, 81, 0.3); color: #e76f51; }
+        .message.success { display: block; background: rgba(45, 106, 79, 0.3); color: var(--color-correct); }
+        .message.error { display: block; background: rgba(231, 111, 81, 0.3); color: var(--color-incorrect); }
 
         .nav { text-align: center; margin-top: 16px; }
-        .nav a { color: #457b9d; text-decoration: none; margin: 0 8px; }
+        .nav a { color: var(--color-info); text-decoration: none; margin: 0 8px; }
 
-        .section-note { font-size: 0.85em; color: #888; margin: 0 0 8px; }
+        .section-note { font-size: 0.85em; color: var(--color-text-dim); margin: 0 0 8px; }
     </style>
 </head>
-<body>
-    <h1>Wi-Fi 設定</h1>
+<body class="page-shell">
+    <h1 class="page-title">Wi-Fi 設定</h1>
 
-    <div class="status">
+    <div class="status panel">
         <div class="status-row">
             <span class="status-label">接続モード:</span>
             <span class="status-value" id="wifiMode">---</span>
@@ -64,7 +52,7 @@
         </div>
     </div>
 
-    <div class="section">
+    <div class="section panel">
         <h2>Wi-Fi 接続先 (STAモード)</h2>
         <div class="field">
             <label>SSID</label>
@@ -76,7 +64,7 @@
         </div>
     </div>
 
-    <div class="section">
+    <div class="section panel">
         <h2>アクセスポイント (APモード)</h2>
         <p class="section-note">Wi-Fi接続できない場合に自動的にAPモードで起動します</p>
         <div class="field">
@@ -92,8 +80,8 @@
     <div id="msg" class="message"></div>
 
     <div class="buttons">
-        <button type="button" class="btn-save" onclick="saveConfig()">設定を保存</button>
-        <button type="button" class="btn-reboot" onclick="reboot()">再起動</button>
+        <button type="button" class="btn btn-success" onclick="saveConfig()">設定を保存</button>
+        <button type="button" class="btn btn-danger" onclick="reboot()">再起動</button>
     </div>
 
     <div class="nav">

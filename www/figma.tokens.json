@@ -1,0 +1,74 @@
+{
+  "colors": {
+    "bg/base": "#0a0a1a",
+    "bg/elevated": "#1a1a2e",
+    "surface/base": "#16213e",
+    "surface/muted": "#111111",
+    "border/base": "#333333",
+    "border/strong": "#444444",
+    "text/base": "#eeeeee",
+    "text/dim": "#888888",
+    "text/subtle": "#666666",
+    "state/correct": "#2d6a4f",
+    "state/incorrect": "#e76f51",
+    "state/warning": "#f4a261",
+    "state/info": "#457b9d",
+    "accent/purple": "#7209b7",
+    "accent/neutral": "#6c757d",
+    "player/p1": "#e63946",
+    "player/p2": "#457b9d",
+    "player/p3": "#2a9d8f",
+    "player/p4": "#e9c46a",
+    "player/p5": "#f4a261",
+    "player/p6": "#264653",
+    "player/p7": "#6a4c93",
+    "player/p8": "#1982c4"
+  },
+  "radius": {
+    "sm": 4,
+    "md": 8,
+    "lg": 12,
+    "round": 999
+  },
+  "spacing": {
+    "1": 4,
+    "2": 8,
+    "3": 12,
+    "4": 16,
+    "5": 24
+  },
+  "fontSize": {
+    "xs": 12,
+    "sm": 14,
+    "md": 16,
+    "lg": 18,
+    "xl": 22
+  },
+  "components": {
+    "panel": {
+      "background": "{colors.surface/base}",
+      "padding": "{spacing.4}",
+      "radius": "{radius.md}"
+    },
+    "button/base": {
+      "radius": "{radius.md}",
+      "paddingY": "{spacing.3}",
+      "paddingX": "{spacing.4}",
+      "fontSize": "{fontSize.md}",
+      "fontWeight": 700
+    },
+    "button/success": {
+      "background": "{colors.state/correct}"
+    },
+    "button/danger": {
+      "background": "{colors.state/incorrect}"
+    },
+    "chip/base": {
+      "paddingY": "{spacing.1}",
+      "paddingX": "{spacing.3}",
+      "radius": "{radius.sm}",
+      "fontSize": "{fontSize.sm}",
+      "fontWeight": 700
+    }
+  }
+}
